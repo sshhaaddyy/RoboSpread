@@ -1,6 +1,6 @@
 ---
 name: research
-description: Fan-out / fan-in research on any question, topic, or idea. Decomposes the subject into 3–5 angles, spawns parallel researcher subagents (one per angle), then spawns a single synthesizer subagent that merges their findings into a structured brief with consensus, disagreements, gaps, and recommendations. Invoke as `/research <question>` or `/research` (then prompt).
+description: Fan-out / fan-in research on any question, topic, or idea. Decomposes the subject into at least 5 angles, spawns parallel researcher subagents on sonnet (one per angle), then spawns a single synthesizer subagent on sonnet that merges their findings into a structured brief with consensus, disagreements, gaps, and recommendations. Invoke as `/research <question>` or `/research` (then prompt).
 ---
 
 # Research: fan-out → fan-in
@@ -33,8 +33,9 @@ Run this skill when **all** of these hold:
 
 ### Step 1 — decompose (≤30s of your own thinking)
 
-Restate the subject in one sentence, then propose **3–5 research angles**
-as distinct sub-questions. Angles should be:
+Restate the subject in one sentence, then propose **at least 5 research
+angles** (5–7 is the sweet spot) as distinct sub-questions. Angles
+should be:
 
 - **Orthogonal** — each explores different ground; minimize overlap.
 - **Concrete** — "how do funding-farm tools price their alerts?" beats
@@ -58,7 +59,12 @@ Typical angle templates (pick the 3–5 that fit):
 Spawn one `Agent` tool call **per angle** in a **single response** so
 they run in parallel. Critical rules:
 
+- **Minimum 5 researchers.** If you think 4 suffices, add one more
+  angle — fewer than 5 defeats the point of the skill.
 - Use `subagent_type: "general-purpose"` (has WebFetch/WebSearch).
+- **Set `model: "sonnet"` on every Agent call** — researchers and
+  synthesizer both. Sonnet is the right cost/capability point for
+  parallelized research work; don't inherit opus.
 - Each researcher gets the **same output schema** (see below) but a
   **unique angle prompt**.
 - Each researcher is told: "Only research your assigned angle. Do not
@@ -93,7 +99,7 @@ they run in parallel. Critical rules:
 ### Step 3 — fan in (single synthesizer, serial)
 
 After all researchers return, spawn **one** `Agent` with
-`subagent_type: "general-purpose"`. Pass it:
+`subagent_type: "general-purpose"` and `model: "sonnet"`. Pass it:
 
 - The original subject (one sentence)
 - The **concatenated researcher briefs** verbatim
@@ -187,15 +193,21 @@ Tools: WebSearch, WebFetch.
   research and the structure breaks.
 - ❌ Pasting all 5 briefs to the user → they asked for an answer, not a
   pile of raw notes.
-- ❌ Running 8+ researchers → diminishing returns past 5; synthesis
+- ❌ Running fewer than 5 researchers → defeats the purpose of
+  fan-out; below 5, just do a single Agent call.
+- ❌ Running 8+ researchers → diminishing returns past 7; synthesis
   quality drops as input grows.
+- ❌ Omitting `model: "sonnet"` → will inherit whatever the parent is
+  running (often opus), burning cost and slowing fan-out.
 - ❌ Using this for codebase questions → Explore subagent is faster.
 
 ## Tuning knobs
 
-- **Angle count**: 3 for tight questions, 5 for broad ones. Never less
-  than 2 (then it's not fan-out). Never more than 5 unless the user
-  explicitly asks.
+- **Angle count**: **5 minimum** (hard floor), 7 maximum. Use 5 for tight
+  questions, 6–7 for broad or high-stakes ones.
+- **Model**: **sonnet** for all researchers and the synthesizer — non-
+  negotiable default. Only override if the user explicitly asks for opus
+  (high-stakes strategic decisions) or haiku (very simple scans).
 - **Researcher word cap**: 200 for quick scans, 400 for deep dives.
 - **Synthesizer word cap**: 600 is the default sweet spot. Raise to
   1000 only for decisions with real stakes.
@@ -219,12 +231,15 @@ Tools: WebSearch, WebFetch.
 >    does ccxt absorb that work for us?
 > 4. Ecosystem alternatives — is there a lighter adapter layer worth
 >    using instead of ccxt?
+> 5. Risk of regression — what features do we lose (symbol normalization,
+>    pagination, retry) and what's the replacement plan?
 >
-> Fanning out 4 researchers now.
+> Fanning out 5 researchers on sonnet now.
 
-**[Agent ×4 in one message]** → parallel execution.
+**[Agent ×5 in one message, all with `model: "sonnet"`]** → parallel
+execution.
 
-**[Agent ×1 synthesizer]** → reads the 4 briefs, outputs the structured
-synthesis.
+**[Agent ×1 synthesizer on sonnet]** → reads the 5 briefs, outputs the
+structured synthesis.
 
 **You:** present TL;DR + recommendation + sources to the user.
