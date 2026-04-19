@@ -1,6 +1,6 @@
 ---
 name: research
-description: Fan-out / fan-in research on any question, topic, or idea. Decomposes the subject into at least 5 angles, spawns parallel researcher subagents on sonnet (one per angle), then spawns a single synthesizer subagent on sonnet that merges their findings into a structured brief with consensus, disagreements, gaps, and recommendations. Invoke as `/research <question>` or `/research` (then prompt).
+description: Fan-out / fan-in research on any question, topic, or idea. Decomposes the subject into at least 5 angles, spawns parallel researcher subagents on sonnet (one per angle), then spawns a single synthesizer subagent on opus that merges their findings into a structured brief with consensus, disagreements, gaps, and recommendations. Invoke as `/research <question>` or `/research` (then prompt).
 ---
 
 # Research: fan-out → fan-in
@@ -62,9 +62,9 @@ they run in parallel. Critical rules:
 - **Minimum 5 researchers.** If you think 4 suffices, add one more
   angle — fewer than 5 defeats the point of the skill.
 - Use `subagent_type: "general-purpose"` (has WebFetch/WebSearch).
-- **Set `model: "sonnet"` on every Agent call** — researchers and
-  synthesizer both. Sonnet is the right cost/capability point for
-  parallelized research work; don't inherit opus.
+- **Set `model: "sonnet"` on every researcher Agent call.** Sonnet is
+  the right cost/capability point for parallel scouting work. The
+  synthesizer is different — see Step 3.
 - Each researcher gets the **same output schema** (see below) but a
   **unique angle prompt**.
 - Each researcher is told: "Only research your assigned angle. Do not
@@ -99,11 +99,17 @@ they run in parallel. Critical rules:
 ### Step 3 — fan in (single synthesizer, serial)
 
 After all researchers return, spawn **one** `Agent` with
-`subagent_type: "general-purpose"` and `model: "sonnet"`. Pass it:
+`subagent_type: "general-purpose"` and **`model: "opus"`**. Pass it:
 
 - The original subject (one sentence)
 - The **concatenated researcher briefs** verbatim
 - The synthesis schema (below)
+
+**Why opus for the synthesizer:** this is the step where reasoning
+quality matters most — weighing tensions between briefs, spotting
+hidden gaps, producing a defensible recommendation. There is only one
+synthesizer call, so the cost delta vs sonnet is small and worth it.
+Researchers can be sonnet because they do narrow, parallel scouting.
 
 **Synthesizer instructions** (paste verbatim):
 
@@ -197,17 +203,20 @@ Tools: WebSearch, WebFetch.
   fan-out; below 5, just do a single Agent call.
 - ❌ Running 8+ researchers → diminishing returns past 7; synthesis
   quality drops as input grows.
-- ❌ Omitting `model: "sonnet"` → will inherit whatever the parent is
-  running (often opus), burning cost and slowing fan-out.
+- ❌ Omitting `model: "sonnet"` on researchers → burns cost if parent
+  is opus, and slows the parallel fan-out tier.
+- ❌ Running the synthesizer on sonnet → the integrative step is where
+  quality matters most; synthesizer must be opus.
 - ❌ Using this for codebase questions → Explore subagent is faster.
 
 ## Tuning knobs
 
 - **Angle count**: **5 minimum** (hard floor), 7 maximum. Use 5 for tight
   questions, 6–7 for broad or high-stakes ones.
-- **Model**: **sonnet** for all researchers and the synthesizer — non-
-  negotiable default. Only override if the user explicitly asks for opus
-  (high-stakes strategic decisions) or haiku (very simple scans).
+- **Model**: **sonnet** for researchers (parallel scouting, cheap), **opus**
+  for the synthesizer (single integrative call, quality matters). Non-
+  negotiable default. Only override both to haiku for throwaway scans
+  the user explicitly asks for.
 - **Researcher word cap**: 200 for quick scans, 400 for deep dives.
 - **Synthesizer word cap**: 600 is the default sweet spot. Raise to
   1000 only for decisions with real stakes.
@@ -239,7 +248,7 @@ Tools: WebSearch, WebFetch.
 **[Agent ×5 in one message, all with `model: "sonnet"`]** → parallel
 execution.
 
-**[Agent ×1 synthesizer on sonnet]** → reads the 5 briefs, outputs the
-structured synthesis.
+**[Agent ×1 synthesizer with `model: "opus"`]** → reads the 5 briefs,
+outputs the structured synthesis.
 
 **You:** present TL;DR + recommendation + sources to the user.

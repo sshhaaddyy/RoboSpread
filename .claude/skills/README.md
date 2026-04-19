@@ -28,9 +28,10 @@ description: <one-line description of when this skill applies>
   terminology collisions from causing wasted work.
 - `research/` — fan-out / fan-in research on any open-ended question.
   Decomposes into **≥5 angles**, spawns parallel researcher subagents
-  (one per angle, on **sonnet**), then a single synthesizer (also
-  sonnet) that outputs a structured brief (TL;DR, consensus, tensions,
-  gaps, recommendation, sources). Invoke as `/research <question>`.
+  (one per angle, on **sonnet**), then a single synthesizer (on
+  **opus**) that outputs a structured brief (TL;DR, consensus,
+  tensions, gaps, recommendation, sources). Invoke as `/research
+  <question>`.
 
 ## Authoring new skills
 
