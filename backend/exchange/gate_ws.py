@@ -16,10 +16,17 @@ class GateWS(CexWSBase):
         {"time": <unix>, "channel": "futures.tickers",
          "event": "subscribe", "payload": ["BTC_USDT", ...]}
 
-    Ticker push fields used: contract, mark_price, funding_rate. Gate's stream
-    does NOT include `funding_interval` or `funding_next_apply`, so we read
-    both from `/api/v4/futures/usdt/contracts` at discovery and advance the
-    next-apply forward algorithmically per-tick (see gate_discovery).
+    Ticker push fields used: contract, mark_price, funding_rate_indicative.
+    We use `funding_rate_indicative` (live-predicted rate for the NEXT
+    settlement) rather than `funding_rate` (which Gate defines as the rate
+    that was paid at the PREVIOUS settlement). This matches the semantics
+    of every other venue in RoboSpread — all six others publish predicted
+    next-settle, not last-settled. Falls back to `funding_rate` if the
+    indicative field is missing on a given tick.
+
+    Gate's stream does NOT include `funding_interval` or `funding_next_apply`,
+    so we read both from `/api/v4/futures/usdt/contracts` at discovery and
+    advance the next-apply forward algorithmically per-tick (see gate_discovery).
     Update envelope:
         {"time":..., "channel":"futures.tickers", "event":"update", "result":[...]}
 
@@ -65,8 +72,11 @@ class GateWS(CexWSBase):
             if mark_price <= 0:
                 continue
 
+            raw_fr = item.get("funding_rate_indicative")
+            if raw_fr is None:
+                raw_fr = item.get("funding_rate")
             try:
-                funding_rate = float(item["funding_rate"]) if "funding_rate" in item else None
+                funding_rate = float(raw_fr) if raw_fr is not None else None
             except (TypeError, ValueError):
                 funding_rate = None
 

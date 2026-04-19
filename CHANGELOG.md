@@ -1,5 +1,11 @@
 # RoboSpread Changelog
 
+## 2026-04-19 — Gate funding semantics + project skills
+
+- **Gate funding rate**: switched from `funding_rate` (Gate's "rate paid at the PREVIOUS settlement") to `funding_rate_indicative` (live-predicted rate for the NEXT settlement). Every other venue already publishes predicted-next-settle — Gate was the odd one out and would lag during a rate shift. Falls back to `funding_rate` if the indicative field is missing on a given tick.
+- **`.claude/skills/add-exchange/SKILL.md`**: project-level skill capturing the end-to-end recipe for wiring a new exchange (REST discovery, WS connector archetypes, wire-up checklist, verification protocol, pitfalls seen across the 5 venues added so far). Invocable via `/add-exchange`.
+- **Pushed** commits `7e1471d` (Phase 11 MEXC), `d1d2acc` (Phase 12 Aster), and this one to origin/master. Live exchange count now 7: binance, bybit, hyperliquid, bitget, gate, mexc, aster.
+
 ## 2026-04-19 — Phase 12: Aster connector (7 exchanges live)
 
 - `backend/exchange/aster_discovery.py`: native REST `GET /fapi/v3/exchangeInfo` (symbols with `contractType=PERPETUAL`, `status=TRADING`, `quoteAsset=USDT`) + `GET /fapi/v3/fundingInfo` (per-symbol `fundingIntervalHours`). Aster is Binance-fapi compatible — canonical == native (`BTCUSDT`). 350 trading perps, interval mix: 259 at 1h, 174 at 8h, 58 at 4h, 3 at 2h.
