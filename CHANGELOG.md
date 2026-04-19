@@ -1,5 +1,11 @@
 # RoboSpread Changelog
 
+## 2026-04-19 — `/clarify` + `/research` skills
+
+- **`.claude/skills/clarify/SKILL.md`**: `/clarify <prompt>` batches 2–5 structured clarifying questions via `AskUserQuestion` before executing an ambiguous request. Position-invariant — the `/clarify` token can appear anywhere in the user's message. Motivated by the "move all exchanges to APIs" incident where ccxt→native and WS→REST were both plausible readings.
+- **`.claude/skills/research/SKILL.md`**: `/research <question>` fan-out/fan-in. Decomposes into ≥5 angles, user confirms via `AskUserQuestion`, spawns parallel researcher subagents on **sonnet** (one per angle, each aware of its siblings), synthesizer on **opus** picks an output template (Decision / Landscape / Explain / Timeline / Generic), runs a single gap-closing follow-up round if the synthesizer flags `[CRITICAL_GAP]`, default-saves to `research/<YYYY-MM-DD>-<slug>.md`. v2 applied 8 self-critique improvements over v1: early-exit check, angle approval, sibling awareness, failure handling, depth tags (200/400/700 word caps), templates, gap-closing, default persistence.
+- **Pushed** commits `6583138`, `135a1f5`, `ef45279`, `85fb07f`, `042e1a6`, `f5b2463` to origin/master.
+
 ## 2026-04-19 — Gate funding semantics + project skills
 
 - **Gate funding rate**: switched from `funding_rate` (Gate's "rate paid at the PREVIOUS settlement") to `funding_rate_indicative` (live-predicted rate for the NEXT settlement). Every other venue already publishes predicted-next-settle — Gate was the odd one out and would lag during a rate shift. Falls back to `funding_rate` if the indicative field is missing on a given tick.
