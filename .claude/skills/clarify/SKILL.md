@@ -71,6 +71,15 @@ Run this skill when the request has **at least one** of:
   subject — don't ask them to restate it.
 - If the user typed bare `/clarify` with no prompt, respond: "Go ahead —
   what's the request?" and invoke questions on their next message.
+- **Position-invariant**: the `/clarify` token can appear anywhere —
+  start, middle, or end of the user's message. Treat the entire message
+  (with the literal `/clarify` token stripped) as the subject of
+  clarification. Examples that should all work:
+  - `/clarify refactor the backend`
+  - `refactor the backend /clarify`
+  - `hey can you /clarify this — refactor the backend please`
+  - `refactor /clarify the backend`
+  In every case the subject is "refactor the backend".
 
 ## Example
 
