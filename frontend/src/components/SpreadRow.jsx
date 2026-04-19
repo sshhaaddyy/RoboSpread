@@ -1,30 +1,49 @@
 import { memo } from "react";
 import { formatPct, formatPrice, formatFunding } from "../utils/format";
+import { inOutFromRoute } from "../utils/routes";
+
+function statusClass(v) {
+  if (v === true) return "status-badge ok";
+  if (v === false) return "status-badge bad";
+  return "status-badge unknown";
+}
+
+function StatusCell({ label, exchangeKey, status }) {
+  if (!status) {
+    return (
+      <div className="status-cell">
+        <span className="status-ex-label">{label}</span>
+        <span className="status-badge unknown">D</span>
+        <span className="status-badge unknown">W</span>
+      </div>
+    );
+  }
+  const dep = status[`${exchangeKey}_deposit`];
+  const wd = status[`${exchangeKey}_withdraw`];
+  return (
+    <div className="status-cell">
+      <span className="status-ex-label">{label}</span>
+      <span className={statusClass(dep)} title={`Deposit ${dep === true ? "open" : dep === false ? "closed" : "unknown"}`}>D</span>
+      <span className={statusClass(wd)} title={`Withdraw ${wd === true ? "open" : wd === false ? "closed" : "unknown"}`}>W</span>
+    </div>
+  );
+}
 
 const SpreadRow = memo(function SpreadRow({ pair, flipped, onClick }) {
-  const spread = pair.spread;
-  if (!spread) return null;
+  const route = pair.best_arb_route;
+  if (!route) return null;
 
-  const isHot = Math.abs(spread.best_net_spread) >= 5;
-  const isWarm = Math.abs(spread.best_net_spread) >= 2;
+  const legs = pair.legs || {};
+  const bnLeg = legs.binance;
+  const bbLeg = legs.bybit;
 
-  // Default direction: best direction found by spread_calc
-  // "In" = entry cost (the spread against you when entering)
-  // "Out" = exit cost (the spread when closing)
-  const isBn = spread.best_direction === "long_binance";
+  const edge = route.instant_edge_pct;
+  const isHot = Math.abs(edge) >= 5;
+  const isWarm = Math.abs(edge) >= 2;
 
-  // In default mode (Long BN / Short BB):
-  //   In = spread_ba (you enter against this spread — typically negative)
-  //   Out = spread_ab (you exit capturing this spread — typically positive)
-  // Flipped reverses In/Out
-  let inVal, outVal;
-  if (!flipped) {
-    inVal = isBn ? spread.spread_ba : spread.spread_ab;
-    outVal = isBn ? spread.spread_ab : spread.spread_ba;
-  } else {
-    inVal = isBn ? spread.spread_ab : spread.spread_ba;
-    outVal = isBn ? spread.spread_ba : spread.spread_ab;
-  }
+  const { inVal, outVal } = inOutFromRoute(legs, route, flipped);
+
+  const fundingApr = flipped ? -route.funding_apr_pct : route.funding_apr_pct;
 
   return (
     <tr
@@ -32,10 +51,10 @@ const SpreadRow = memo(function SpreadRow({ pair, flipped, onClick }) {
       onClick={() => onClick(pair.symbol)}
     >
       <td className="symbol">{pair.symbol}</td>
-      <td>{formatPrice(pair.price_binance)}</td>
-      <td>{formatPrice(pair.price_bybit)}</td>
-      <td className={spread.best_net_spread > 0 ? "positive" : "negative"}>
-        {formatPct(spread.best_net_spread)}
+      <td>{formatPrice(bnLeg?.mark_price)}</td>
+      <td>{formatPrice(bbLeg?.mark_price)}</td>
+      <td className={edge > 0 ? "positive" : "negative"}>
+        {formatPct(edge)}
       </td>
       <td className={inVal > 0 ? "positive" : "negative"}>
         {formatPct(inVal)}
@@ -43,10 +62,16 @@ const SpreadRow = memo(function SpreadRow({ pair, flipped, onClick }) {
       <td className={outVal > 0 ? "positive" : "negative"}>
         {formatPct(outVal)}
       </td>
-      <td>{formatFunding(pair.funding_binance)}</td>
-      <td>{formatFunding(pair.funding_bybit)}</td>
-      <td className={pair.funding_spread_apr > 0 ? "positive" : "negative"}>
-        {formatPct(pair.funding_spread_apr)}
+      <td>{formatFunding(bnLeg?.funding_rate)}</td>
+      <td>{formatFunding(bbLeg?.funding_rate)}</td>
+      <td className={fundingApr > 0 ? "positive" : "negative"}>
+        {formatPct(fundingApr)}
+      </td>
+      <td>
+        <div className="status-cell-group">
+          <StatusCell label="BN" exchangeKey="binance" status={pair.coin_status} />
+          <StatusCell label="BB" exchangeKey="bybit" status={pair.coin_status} />
+        </div>
       </td>
       <td>{pair.is_stale ? "STALE" : "LIVE"}</td>
     </tr>

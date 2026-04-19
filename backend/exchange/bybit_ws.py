@@ -1,11 +1,10 @@
 import asyncio
 import json
 import logging
-import time
 import websockets
 
 from config import (
-    BYBIT_WS_URL,
+    EXCHANGES,
     BYBIT_SUB_BATCH_SIZE,
     BYBIT_SUB_BATCH_DELAY,
     BYBIT_PING_INTERVAL,
@@ -23,11 +22,9 @@ class BybitWS(ExchangeWS):
     Requires ping every 20s to keep connection alive.
     """
 
-    def __init__(self, symbols: list[str]):
-        super().__init__("Bybit", symbols)
+    exchange_id = "bybit"
 
     async def _subscribe(self, ws):
-        """Subscribe to tickers in batches of BYBIT_SUB_BATCH_SIZE."""
         symbol_list = sorted(self.symbols)
         for i in range(0, len(symbol_list), BYBIT_SUB_BATCH_SIZE):
             batch = symbol_list[i : i + BYBIT_SUB_BATCH_SIZE]
@@ -39,23 +36,22 @@ class BybitWS(ExchangeWS):
         logger.info(f"[Bybit] Subscribed to {len(symbol_list)} tickers")
 
     async def _ping_loop(self, ws):
-        """Send ping every BYBIT_PING_INTERVAL seconds."""
         try:
             while True:
                 await asyncio.sleep(BYBIT_PING_INTERVAL)
                 await ws.send(json.dumps({"op": "ping"}))
         except Exception:
-            pass  # Connection closed, ping loop exits
+            pass
 
     async def connect(self):
-        logger.info(f"[Bybit] Connecting to {BYBIT_WS_URL}")
+        url = EXCHANGES[self.exchange_id]["ws_url"]
+        logger.info(f"[Bybit] Connecting to {url}")
 
-        async with websockets.connect(BYBIT_WS_URL, ping_interval=None) as ws:
+        async with websockets.connect(url, ping_interval=None) as ws:
             logger.info("[Bybit] Connected. Subscribing to tickers...")
 
             await self._subscribe(ws)
 
-            # Start ping loop in background
             ping_task = asyncio.create_task(self._ping_loop(ws))
 
             try:
@@ -63,7 +59,6 @@ class BybitWS(ExchangeWS):
                     try:
                         msg = json.loads(raw_msg)
 
-                        # Skip pong and subscription confirmations
                         if msg.get("op") in ("pong", "subscribe"):
                             continue
 
@@ -85,11 +80,11 @@ class BybitWS(ExchangeWS):
                         if mark_price:
                             nft = int(next_funding_time) / 1000 if next_funding_time else None
                             fih = int(funding_interval_min) / 60 if funding_interval_min else 8
-                            state.update_price(
-                                "bybit",
+                            state.update_leg(
+                                self.exchange_id,
                                 symbol,
                                 float(mark_price),
-                                float(funding_rate) if funding_rate else None,
+                                funding_rate=float(funding_rate) if funding_rate else None,
                                 next_funding_time=nft,
                                 funding_interval_h=fih,
                             )

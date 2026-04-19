@@ -292,6 +292,58 @@ body {
   color: var(--accent-red);
 }
 
+/* ─── Wallet D/W Badges ─── */
+.status-cell-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.status-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.status-ex-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  width: 18px;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0;
+  border: 1px solid transparent;
+}
+
+.status-badge.ok {
+  background: var(--accent-green-dim);
+  color: var(--accent-green);
+  border-color: rgba(34, 197, 94, 0.25);
+}
+
+.status-badge.bad {
+  background: var(--accent-red-dim);
+  color: var(--accent-red);
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+.status-badge.unknown {
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-muted);
+  border-color: var(--border-subtle);
+}
+
 /* ─── Pair Detail ─── */
 .pair-detail {
   padding: 24px;

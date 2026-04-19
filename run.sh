@@ -8,8 +8,7 @@ echo "🚀 Starting RoboSpread..."
 # Start backend
 echo "Starting backend..."
 cd "$DIR/backend"
-source venv/bin/activate
-python main.py &
+"$DIR/backend/venv/bin/python" main.py &
 BACKEND_PID=$!
 
 # Start frontend

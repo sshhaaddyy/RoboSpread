@@ -2,7 +2,7 @@ import json
 import logging
 import websockets
 
-from config import BINANCE_WS_URL
+from config import EXCHANGES
 from exchange.base import ExchangeWS
 from engine.state import state
 
@@ -16,13 +16,13 @@ class BinanceWS(ExchangeWS):
     We filter to only our common pairs.
     """
 
-    def __init__(self, symbols: list[str]):
-        super().__init__("Binance", symbols)
+    exchange_id = "binance"
 
     async def connect(self):
-        logger.info(f"[Binance] Connecting to {BINANCE_WS_URL}")
+        url = EXCHANGES[self.exchange_id]["ws_url"]
+        logger.info(f"[Binance] Connecting to {url}")
 
-        async with websockets.connect(BINANCE_WS_URL, ping_interval=20) as ws:
+        async with websockets.connect(url, ping_interval=20) as ws:
             logger.info("[Binance] Connected. Streaming mark prices...")
 
             async for raw_msg in ws:
@@ -44,8 +44,11 @@ class BinanceWS(ExchangeWS):
                         nft = int(next_funding_time_ms) / 1000 if next_funding_time_ms else None
 
                         if mark_price > 0:
-                            state.update_price(
-                                "binance", symbol, mark_price, funding_rate,
+                            state.update_leg(
+                                self.exchange_id,
+                                symbol,
+                                mark_price,
+                                funding_rate=funding_rate,
                                 next_funding_time=nft,
                             )
 

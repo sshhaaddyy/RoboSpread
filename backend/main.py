@@ -10,6 +10,7 @@ from config import HOST, PORT
 from exchange.pair_discovery import discover_common_pairs
 from exchange.binance_ws import BinanceWS
 from exchange.bybit_ws import BybitWS
+from exchange.asset_status import run_coin_status_poller
 from engine.state import state
 from api.ws_handler import ws_endpoint, setup_ws_push
 from exchange.history import fetch_historical_spread
@@ -45,6 +46,7 @@ async def startup():
 
     asyncio.create_task(binance_ws.run_forever())
     asyncio.create_task(bybit_ws.run_forever())
+    asyncio.create_task(run_coin_status_poller(state))
 
     logger.info("Exchange WebSocket tasks started.")
 

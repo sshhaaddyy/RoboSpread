@@ -1,5 +1,6 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef } from "react";
 import { formatPrice, formatFunding, formatPct } from "../utils/format";
+import { rawSpread } from "../utils/routes";
 import SpreadChart from "./SpreadChart";
 
 function useFundingCountdown(nextFundingTimeSec) {
@@ -132,23 +133,48 @@ function ExchangeIcon({ exchangeKey }) {
   );
 }
 
-function DirectionLabel({ dirLabel }) {
-  const parts = dirLabel.split(" / ");
+function DirectionLabel({ longEx, shortEx }) {
+  const longName = EXCHANGE_META[longEx]?.name || longEx;
+  const shortName = EXCHANGE_META[shortEx]?.name || shortEx;
   return (
     <span className="dir-label">
-      {parts.map((part, i) => {
-        const isLong = part.startsWith("Long");
-        return (
-          <span key={i}>
-            {i > 0 && <span className="dir-separator"> / </span>}
-            <span className={isLong ? "dir-long" : "dir-short"}>
-              <DirectionArrow isLong={isLong} />
-              {part}
-            </span>
-          </span>
-        );
-      })}
+      <span className="dir-long">
+        <DirectionArrow isLong={true} />
+        Long {longName}
+      </span>
+      <span className="dir-separator"> / </span>
+      <span className="dir-short">
+        <DirectionArrow isLong={false} />
+        Short {shortName}
+      </span>
     </span>
+  );
+}
+
+function ExchangeBox({ exchangeKey, leg, isLong }) {
+  const meta = EXCHANGE_META[exchangeKey] || { name: exchangeKey };
+  return (
+    <div className="exchange-box">
+      <div className="exchange-box-header">
+        <span className={isLong ? "dir-long" : "dir-short"}>
+          <DirectionArrow isLong={isLong} />
+        </span>
+        <ExchangeIcon exchangeKey={exchangeKey} />
+        <h3>{meta.name}</h3>
+      </div>
+      <div className="box-row">
+        <span>Mark Price</span>
+        <span>{formatPrice(leg?.mark_price)}</span>
+      </div>
+      <div className="box-row">
+        <span>Funding Rate</span>
+        <span>{formatFunding(leg?.funding_rate)}</span>
+      </div>
+      <FundingCountdown
+        nextFundingTime={leg?.next_funding_time}
+        intervalH={leg?.funding_interval_h}
+      />
+    </div>
   );
 }
 
@@ -165,55 +191,40 @@ export default function PairDetail({ symbol, pairData, onBack }) {
     setLoading(true);
     setHistory(null);
 
-    if (timeframe === "1s") {
-      fetch(`http://localhost:8000/api/history/${symbol}?timeframe=1s`)
-        .then((r) => r.json())
-        .then((result) => {
-          setHistory(result);
-          setLoading(false);
-        })
-        .catch((e) => {
-          console.error("History fetch error:", e);
-          setHistory([]);
-          setLoading(false);
-        });
-    } else {
-      const tf = TIMEFRAMES.find((t) => t.value === timeframe);
-      fetch(`http://localhost:8000/api/history/${symbol}?timeframe=${timeframe}&limit=${tf?.limit || 500}`)
-        .then((r) => r.json())
-        .then((result) => {
-          setHistory(result);
-          setLoading(false);
-        })
-        .catch((e) => {
-          console.error("History fetch error:", e);
-          setHistory([]);
-          setLoading(false);
-        });
-    }
+    const url =
+      timeframe === "1s"
+        ? `http://localhost:8000/api/history/${symbol}?timeframe=1s`
+        : `http://localhost:8000/api/history/${symbol}?timeframe=${timeframe}&limit=${
+            TIMEFRAMES.find((t) => t.value === timeframe)?.limit || 500
+          }`;
+
+    fetch(url)
+      .then((r) => r.json())
+      .then((result) => {
+        setHistory(result);
+        setLoading(false);
+      })
+      .catch((e) => {
+        console.error("History fetch error:", e);
+        setHistory([]);
+        setLoading(false);
+      });
   }, [symbol, timeframe]);
 
   if (!data) return null;
 
-  const spread = data.spread;
-  const isBn = spread?.best_direction === "long_binance";
+  const route = data.best_arb_route;
+  const legs = data.legs || {};
+  if (!route) return null;
 
-  let inVal, outVal, dirLabel, leftExchange, rightExchange, leftIsLong;
-  if (!flipped) {
-    inVal = isBn ? spread?.spread_ba : spread?.spread_ab;
-    outVal = isBn ? spread?.spread_ab : spread?.spread_ba;
-    dirLabel = isBn ? "Long Binance / Short Bybit" : "Long Bybit / Short Binance";
-    leftExchange = isBn ? "binance" : "bybit";
-    rightExchange = isBn ? "bybit" : "binance";
-    leftIsLong = true;
-  } else {
-    inVal = isBn ? spread?.spread_ab : spread?.spread_ba;
-    outVal = isBn ? spread?.spread_ba : spread?.spread_ab;
-    dirLabel = isBn ? "Long Bybit / Short Binance" : "Long Binance / Short Bybit";
-    leftExchange = isBn ? "bybit" : "binance";
-    rightExchange = isBn ? "binance" : "bybit";
-    leftIsLong = true;
-  }
+  const longEx = flipped ? route.short_ex : route.long_ex;
+  const shortEx = flipped ? route.long_ex : route.short_ex;
+
+  const outVal = rawSpread(legs, longEx, shortEx);
+  const inVal = rawSpread(legs, shortEx, longEx);
+
+  const fundingApr = flipped ? -route.funding_apr_pct : route.funding_apr_pct;
+  const instantEdge = route.instant_edge_pct;
 
   return (
     <div className="pair-detail">
@@ -221,18 +232,16 @@ export default function PairDetail({ symbol, pairData, onBack }) {
         <button onClick={onBack} className="back-btn">Back</button>
         <TokenIcon symbol={symbol} />
         <h2>{symbol}</h2>
-        {spread && (
-          <div className="detail-spread-info">
-            <span className="label">Net Spread</span>
-            <span className={spread.best_net_spread > 0 ? "positive" : "negative"}>
-              {formatPct(spread.best_net_spread)}
-            </span>
-          </div>
-        )}
+        <div className="detail-spread-info">
+          <span className="label">Net Spread</span>
+          <span className={instantEdge > 0 ? "positive" : "negative"}>
+            {formatPct(instantEdge)}
+          </span>
+        </div>
       </div>
 
       <div className="detail-direction-bar">
-        <DirectionLabel dirLabel={dirLabel} />
+        <DirectionLabel longEx={longEx} shortEx={shortEx} />
         <button
           className={`flip-btn ${flipped ? "flipped" : ""}`}
           onClick={() => setFlipped(!flipped)}
@@ -251,27 +260,7 @@ export default function PairDetail({ symbol, pairData, onBack }) {
               {formatPct(inVal)}
             </span>
           </div>
-          <div className="exchange-box">
-            <div className="exchange-box-header">
-              <span className={leftIsLong ? "dir-long" : "dir-short"}>
-                <DirectionArrow isLong={leftIsLong} />
-              </span>
-              <ExchangeIcon exchangeKey={leftExchange} />
-              <h3>{EXCHANGE_META[leftExchange]?.name || leftExchange}</h3>
-            </div>
-            <div className="box-row">
-              <span>Mark Price</span>
-              <span>{formatPrice(data[`price_${leftExchange}`])}</span>
-            </div>
-            <div className="box-row">
-              <span>Funding Rate</span>
-              <span>{formatFunding(data[`funding_${leftExchange}`])}</span>
-            </div>
-            <FundingCountdown
-              nextFundingTime={data[`next_funding_time_${leftExchange}`]}
-              intervalH={data[`funding_interval_h_${leftExchange}`]}
-            />
-          </div>
+          <ExchangeBox exchangeKey={longEx} leg={legs[longEx]} isLong={true} />
         </div>
 
         <div className="detail-col">
@@ -281,34 +270,14 @@ export default function PairDetail({ symbol, pairData, onBack }) {
               {formatPct(outVal)}
             </span>
           </div>
-          <div className="exchange-box">
-            <div className="exchange-box-header">
-              <span className={!leftIsLong ? "dir-long" : "dir-short"}>
-                <DirectionArrow isLong={!leftIsLong} />
-              </span>
-              <ExchangeIcon exchangeKey={rightExchange} />
-              <h3>{EXCHANGE_META[rightExchange]?.name || rightExchange}</h3>
-            </div>
-            <div className="box-row">
-              <span>Mark Price</span>
-              <span>{formatPrice(data[`price_${rightExchange}`])}</span>
-            </div>
-            <div className="box-row">
-              <span>Funding Rate</span>
-              <span>{formatFunding(data[`funding_${rightExchange}`])}</span>
-            </div>
-            <FundingCountdown
-              nextFundingTime={data[`next_funding_time_${rightExchange}`]}
-              intervalH={data[`funding_interval_h_${rightExchange}`]}
-            />
-          </div>
+          <ExchangeBox exchangeKey={shortEx} leg={legs[shortEx]} isLong={false} />
         </div>
       </div>
 
       <div className="funding-apr">
         <span className="label">Funding Spread APR</span>
-        <span className={(flipped ? -data.funding_spread_apr : data.funding_spread_apr) > 0 ? "positive" : "negative"}>
-          {formatPct(flipped ? -data.funding_spread_apr : data.funding_spread_apr)}
+        <span className={fundingApr > 0 ? "positive" : "negative"}>
+          {formatPct(fundingApr)}
         </span>
       </div>
 
@@ -328,11 +297,11 @@ export default function PairDetail({ symbol, pairData, onBack }) {
         <div className="chart-loading">Loading spread data...</div>
       ) : (
         <SpreadChart
-          key={symbol + timeframe + flipped}
+          key={symbol + timeframe + longEx + shortEx}
           history={history || []}
-          symbol={symbol}
           liveData={data}
-          flipped={flipped}
+          longEx={longEx}
+          shortEx={shortEx}
           isLive={timeframe === "1s"}
         />
       )}

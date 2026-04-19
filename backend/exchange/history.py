@@ -1,69 +1,67 @@
 import ccxt
 import logging
-import time
 
 logger = logging.getLogger(__name__)
 
-_binance = None
-_bybit = None
+_clients: dict[str, object] = {}
 
 
-def _get_exchanges():
-    global _binance, _bybit
-    if _binance is None:
-        _binance = ccxt.binance({"options": {"defaultType": "future"}})
-        _bybit = ccxt.bybit({"options": {"defaultType": "future"}})
-    return _binance, _bybit
+def _get_client(exchange_id: str):
+    if exchange_id in _clients:
+        return _clients[exchange_id]
+    if exchange_id == "binance":
+        _clients[exchange_id] = ccxt.binance({"options": {"defaultType": "future"}})
+    elif exchange_id == "bybit":
+        _clients[exchange_id] = ccxt.bybit({"options": {"defaultType": "future"}})
+    else:
+        raise ValueError(f"No ccxt client configured for {exchange_id}")
+    return _clients[exchange_id]
+
+
+def _fetch_ohlcv(exchange_id: str, symbol: str, timeframe: str, limit: int) -> list:
+    client = _get_client(exchange_id)
+    return client.fetch_ohlcv(
+        symbol.replace("USDT", "/USDT:USDT"),
+        timeframe=timeframe,
+        limit=limit,
+        params={"price": "mark"},
+    )
 
 
 def fetch_historical_spread(symbol: str, timeframe: str = "1m", limit: int = 500) -> list[dict]:
     """
-    Fetch historical mark price klines from both exchanges and compute spread history.
-    Returns list of {timestamp, spread_ab, spread_ba, price_binance, price_bybit}.
+    Fetch historical mark-price klines from every registered exchange and return
+    a list of snapshots: [{timestamp, prices: {exchange_id: close_price}}].
+    Timestamps without a value from every exchange are still returned — the frontend
+    filters legs it needs for the chosen route.
     """
-    binance, bybit = _get_exchanges()
+    from config import EXCHANGES
 
-    try:
-        # Fetch klines (OHLCV) from both exchanges
-        # Using mark price for futures
-        bn_klines = binance.fetch_ohlcv(
-            symbol.replace("USDT", "/USDT:USDT"),
-            timeframe=timeframe,
-            limit=limit,
-            params={"price": "mark"},
-        )
-        bb_klines = bybit.fetch_ohlcv(
-            symbol.replace("USDT", "/USDT:USDT"),
-            timeframe=timeframe,
-            limit=limit,
-            params={"price": "mark"},
-        )
-    except Exception as e:
-        logger.error(f"Failed to fetch history for {symbol}: {e}")
+    per_ex: dict[str, dict[int, float]] = {}
+    for ex in EXCHANGES.keys():
+        try:
+            klines = _fetch_ohlcv(ex, symbol, timeframe, limit)
+        except Exception as e:
+            logger.error(f"Failed to fetch history for {symbol} from {ex}: {e}")
+            continue
+        by_ts = {}
+        for k in klines:
+            ts = k[0] // 1000
+            close = k[4]
+            if close and close > 0:
+                by_ts[ts] = close
+        per_ex[ex] = by_ts
+
+    if not per_ex:
         return []
 
-    # Index bybit klines by timestamp for fast lookup
-    bb_map = {}
-    for k in bb_klines:
-        ts = k[0] // 1000  # ms to seconds
-        bb_map[ts] = k[4]  # close price
-
+    # Outer-join timestamps across all exchanges
+    all_ts = sorted({ts for m in per_ex.values() for ts in m.keys()})
     results = []
-    for k in bn_klines:
-        ts = k[0] // 1000
-        price_bn = k[4]  # close price
-        price_bb = bb_map.get(ts)
-
-        if price_bn and price_bb and price_bn > 0 and price_bb > 0:
-            spread_ab = ((price_bb - price_bn) / price_bn) * 100
-            spread_ba = ((price_bn - price_bb) / price_bb) * 100
-            results.append({
-                "timestamp": ts,
-                "spread_ab": round(spread_ab, 4),
-                "spread_ba": round(spread_ba, 4),
-                "price_binance": price_bn,
-                "price_bybit": price_bb,
-            })
+    for ts in all_ts:
+        prices = {ex: m[ts] for ex, m in per_ex.items() if ts in m}
+        if len(prices) >= 2:
+            results.append({"timestamp": ts, "prices": prices})
 
     logger.info(f"Fetched {len(results)} historical points for {symbol} ({timeframe})")
     return results

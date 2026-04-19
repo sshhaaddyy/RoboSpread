@@ -1,46 +1,50 @@
 import { useState, useMemo } from "react";
 import SpreadRow from "./SpreadRow";
+import { inOutFromRoute } from "../utils/routes";
 
 const COLUMNS = [
   { key: "symbol", label: "Pair" },
   { key: "price_binance", label: "Binance Price" },
   { key: "price_bybit", label: "Bybit Price" },
-  { key: "best_net_spread", label: "Net Spread" },
+  { key: "instant_edge", label: "Net Spread" },
   { key: "in", label: "In" },
   { key: "out", label: "Out" },
   { key: "funding_binance", label: "Fund Binance" },
   { key: "funding_bybit", label: "Fund Bybit" },
-  { key: "funding_spread_apr", label: "Fund APR" },
+  { key: "funding_apr", label: "Fund APR" },
+  { key: "wallet", label: "Wallet D/W" },
   { key: "status", label: "Status" },
 ];
 
 function getSortValue(pair, key, flipped) {
+  const route = pair.best_arb_route;
+  const legs = pair.legs || {};
   switch (key) {
-    case "best_net_spread":
-      return Math.abs(pair.spread?.best_net_spread ?? 0);
-    case "in": {
-      const s = pair.spread;
-      if (!s) return 0;
-      const isBn = s.best_direction === "long_binance";
-      return flipped
-        ? (isBn ? s.spread_ab : s.spread_ba)
-        : (isBn ? s.spread_ba : s.spread_ab);
-    }
-    case "out": {
-      const s = pair.spread;
-      if (!s) return 0;
-      const isBn = s.best_direction === "long_binance";
-      return flipped
-        ? (isBn ? s.spread_ba : s.spread_ab)
-        : (isBn ? s.spread_ab : s.spread_ba);
-    }
+    case "symbol":
+      return pair.symbol;
+    case "price_binance":
+      return legs.binance?.mark_price ?? 0;
+    case "price_bybit":
+      return legs.bybit?.mark_price ?? 0;
+    case "instant_edge":
+      return Math.abs(route?.instant_edge_pct ?? 0);
+    case "in":
+      return inOutFromRoute(legs, route, flipped).inVal;
+    case "out":
+      return inOutFromRoute(legs, route, flipped).outVal;
+    case "funding_binance":
+      return legs.binance?.funding_rate ?? 0;
+    case "funding_bybit":
+      return legs.bybit?.funding_rate ?? 0;
+    case "funding_apr":
+      return (flipped ? -1 : 1) * (route?.funding_apr_pct ?? 0);
     default:
-      return pair[key] ?? 0;
+      return 0;
   }
 }
 
 export default function SpreadTable({ pairs, onSelectPair }) {
-  const [sortKey, setSortKey] = useState("best_net_spread");
+  const [sortKey, setSortKey] = useState("instant_edge");
   const [sortDesc, setSortDesc] = useState(true);
   const [filter, setFilter] = useState("");
   const [flipped, setFlipped] = useState(false);

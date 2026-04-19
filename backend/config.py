@@ -1,13 +1,39 @@
-# Exchange WebSocket URLs
-BINANCE_WS_URL = "wss://fstream.binance.com/stream?streams=!markPrice@arr@1s"
-BYBIT_WS_URL = "wss://stream.bybit.com/v5/public/linear"
+# ─────────────────────────────────────────────────────────────────
+# Exchange registry — single source of truth for fees, WS URLs,
+# funding intervals, and display metadata. New exchanges register here.
+# ─────────────────────────────────────────────────────────────────
+EXCHANGES: dict[str, dict] = {
+    "binance": {
+        "id": "binance",
+        "name": "Binance Futures",
+        "short_name": "Binance",
+        "icon": "https://assets.coingecko.com/markets/images/52/small/binance.jpg",
+        "color": "#f0b90b",
+        "letter": "B",
+        "maker_fee": 0.02,
+        "taker_fee": 0.04,
+        "default_funding_interval_h": 8.0,
+        "ws_url": "wss://fstream.binance.com/stream?streams=!markPrice@arr@1s",
+    },
+    "bybit": {
+        "id": "bybit",
+        "name": "Bybit Futures",
+        "short_name": "Bybit",
+        "icon": "https://assets.coingecko.com/markets/images/698/small/bybit_spot.png",
+        "color": "#f7a600",
+        "letter": "By",
+        "maker_fee": 0.01,
+        "taker_fee": 0.055,
+        "default_funding_interval_h": 8.0,
+        "ws_url": "wss://stream.bybit.com/v5/public/linear",
+    },
+}
 
-# Taker fees (percentage)
-BINANCE_TAKER_FEE = 0.04
-BYBIT_TAKER_FEE = 0.055
 
-# Round-trip fee: open on both exchanges + close on both exchanges
-ROUND_TRIP_FEE = 2 * (BINANCE_TAKER_FEE + BYBIT_TAKER_FEE)  # 0.19%
+def round_trip_fee_pct(long_ex: str, short_ex: str) -> float:
+    """Total fees for opening + closing a long/short pair using taker on both legs."""
+    return 2 * (EXCHANGES[long_ex]["taker_fee"] + EXCHANGES[short_ex]["taker_fee"])
+
 
 # Alert threshold (spread %)
 ALERT_THRESHOLD = 5.0

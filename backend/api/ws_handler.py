@@ -48,7 +48,9 @@ async def _push_loop():
 def _on_pair_update(symbol: str, pair):
     """Called by state on every price update. Just buffers the data."""
     try:
-        _pending[symbol] = pair.to_dict()
+        d = pair.to_dict()
+        d["coin_status"] = state.coin_status_for(symbol)
+        _pending[symbol] = d
     except Exception:
         pass
 

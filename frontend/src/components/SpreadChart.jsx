@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { createChart, LineSeries } from "lightweight-charts";
 
-export default function SpreadChart({ history, symbol, liveData, flipped, isLive }) {
+function spreadFromPrices(prices, longEx, shortEx) {
+  const longP = prices?.[longEx];
+  const shortP = prices?.[shortEx];
+  if (!longP || !shortP) return null;
+  return ((shortP - longP) / longP) * 100;
+}
+
+export default function SpreadChart({ history, liveData, longEx, shortEx }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
   const seriesInRef = useRef(null);
@@ -10,7 +17,6 @@ export default function SpreadChart({ history, symbol, liveData, flipped, isLive
   const readyRef = useRef(false);
   const [error, setError] = useState(null);
 
-  // Create chart
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -93,9 +99,9 @@ export default function SpreadChart({ history, symbol, liveData, flipped, isLive
     }
   }, []);
 
-  // Load history data
   useEffect(() => {
     if (!seriesInRef.current || !history || history.length === 0) return;
+    if (!longEx || !shortEx) return;
 
     try {
       const seen = new Set();
@@ -108,23 +114,29 @@ export default function SpreadChart({ history, symbol, liveData, flipped, isLive
         })
         .sort((a, b) => a.timestamp - b.timestamp);
 
-      const inData = clean.map((h) => ({
-        time: Math.floor(h.timestamp),
-        value: flipped ? h.spread_ab : h.spread_ba,
-      }));
-      const outData = clean.map((h) => ({
-        time: Math.floor(h.timestamp),
-        value: flipped ? h.spread_ba : h.spread_ab,
-      }));
+      const inData = [];
+      const outData = [];
+      for (const h of clean) {
+        const t = Math.floor(h.timestamp);
+        const prices = h.prices || {};
+        const outV = spreadFromPrices(prices, longEx, shortEx);
+        const inV = spreadFromPrices(prices, shortEx, longEx);
+        if (outV !== null) outData.push({ time: t, value: outV });
+        if (inV !== null) inData.push({ time: t, value: inV });
+      }
 
-      if (inData.length === 0) return;
+      if (inData.length === 0 && outData.length === 0) return;
 
       seriesInRef.current.setData(inData);
       seriesOutRef.current.setData(outData);
-      lastTimeRef.current = inData[inData.length - 1].time;
+      const lastT =
+        Math.max(
+          inData.length ? inData[inData.length - 1].time : 0,
+          outData.length ? outData[outData.length - 1].time : 0,
+        );
+      lastTimeRef.current = lastT;
       readyRef.current = true;
 
-      // Zero line
       seriesOutRef.current.createPriceLine({
         price: 0,
         color: "rgba(255, 255, 255, 0.08)",
@@ -137,25 +149,29 @@ export default function SpreadChart({ history, symbol, liveData, flipped, isLive
     } catch (e) {
       console.error("Chart setData error:", e);
     }
-  }, [history, flipped]);
+  }, [history, longEx, shortEx]);
 
-  // Live updates (always active for 1s, append for others)
   useEffect(() => {
-    if (!seriesInRef.current || !liveData?.spread) return;
+    if (!seriesInRef.current || !liveData?.legs) return;
     if (!readyRef.current) return;
+    if (!longEx || !shortEx) return;
 
     try {
       const time = Math.floor(Date.now() / 1000);
       if (time <= lastTimeRef.current) return;
       lastTimeRef.current = time;
 
-      const inVal = flipped ? liveData.spread.spread_ab : liveData.spread.spread_ba;
-      const outVal = flipped ? liveData.spread.spread_ba : liveData.spread.spread_ab;
+      const prices = {
+        [longEx]: liveData.legs[longEx]?.mark_price,
+        [shortEx]: liveData.legs[shortEx]?.mark_price,
+      };
+      const outV = spreadFromPrices(prices, longEx, shortEx);
+      const inV = spreadFromPrices(prices, shortEx, longEx);
 
-      seriesInRef.current.update({ time, value: inVal });
-      seriesOutRef.current.update({ time, value: outVal });
+      if (inV !== null) seriesInRef.current.update({ time, value: inV });
+      if (outV !== null) seriesOutRef.current.update({ time, value: outV });
     } catch (_) {}
-  }, [liveData, flipped]);
+  }, [liveData, longEx, shortEx]);
 
   if (error) {
     return <div className="chart-loading">Chart error: {error}</div>;

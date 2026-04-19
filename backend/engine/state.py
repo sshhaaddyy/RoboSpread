@@ -2,66 +2,65 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 
-from config import HISTORY_MAX_LEN, STALE_THRESHOLD_SEC
-from engine.spread_calc import SpreadResult, calc_spread, calc_funding_spread_apr
+from config import HISTORY_MAX_LEN, STALE_THRESHOLD_SEC, EXCHANGES
+from engine.spread_calc import Route, best_arb_route, best_funding_route
+from exchange.asset_status import base_coin_candidates
 
 
 @dataclass
-class SpreadSnapshot:
+class ExchangeLeg:
+    exchange_id: str
+    mark_price: float = 0.0
+    funding_rate: float = 0.0
+    funding_interval_h: float = 8.0
+    next_funding_time: float = 0.0
+    last_update: float = 0.0
+
+    @property
+    def is_stale(self) -> bool:
+        if self.last_update == 0:
+            return True
+        return time.time() - self.last_update > STALE_THRESHOLD_SEC
+
+    def to_dict(self) -> dict:
+        return {
+            "exchange_id": self.exchange_id,
+            "mark_price": self.mark_price,
+            "funding_rate": self.funding_rate,
+            "funding_interval_h": self.funding_interval_h,
+            "next_funding_time": self.next_funding_time,
+            "last_update": self.last_update,
+            "is_stale": self.is_stale,
+        }
+
+
+@dataclass
+class PriceSnapshot:
     timestamp: float
-    spread_ab: float
-    spread_ba: float
-    price_binance: float
-    price_bybit: float
+    prices: dict[str, float]  # exchange_id -> mark_price at this tick
 
 
 @dataclass
 class PairState:
     symbol: str
-    price_binance: float = 0.0
-    price_bybit: float = 0.0
-    funding_binance: float = 0.0
-    funding_bybit: float = 0.0
-    next_funding_time_binance: float = 0.0
-    next_funding_time_bybit: float = 0.0
-    funding_interval_h_binance: float = 8.0
-    funding_interval_h_bybit: float = 8.0
-    last_update_binance: float = 0.0
-    last_update_bybit: float = 0.0
-    spread: SpreadResult | None = None
-    funding_spread_apr: float = 0.0
+    legs: dict[str, ExchangeLeg] = field(default_factory=dict)
+    best_arb: Route | None = None
+    best_funding: Route | None = None
     history: deque = field(default_factory=lambda: deque(maxlen=HISTORY_MAX_LEN))
 
     @property
     def is_stale(self) -> bool:
-        now = time.time()
-        return (
-            (now - self.last_update_binance > STALE_THRESHOLD_SEC)
-            or (now - self.last_update_bybit > STALE_THRESHOLD_SEC)
-        )
+        active = [leg for leg in self.legs.values() if leg.last_update > 0]
+        if len(active) < 2:
+            return True
+        return any(leg.is_stale for leg in active)
 
     def to_dict(self) -> dict:
         return {
             "symbol": self.symbol,
-            "price_binance": self.price_binance,
-            "price_bybit": self.price_bybit,
-            "funding_binance": self.funding_binance,
-            "funding_bybit": self.funding_bybit,
-            "next_funding_time_binance": self.next_funding_time_binance,
-            "next_funding_time_bybit": self.next_funding_time_bybit,
-            "funding_interval_h_binance": self.funding_interval_h_binance,
-            "funding_interval_h_bybit": self.funding_interval_h_bybit,
-            "spread": {
-                "spread_ab": self.spread.spread_ab,
-                "net_spread_ab": self.spread.net_spread_ab,
-                "spread_ba": self.spread.spread_ba,
-                "net_spread_ba": self.spread.net_spread_ba,
-                "best_direction": self.spread.best_direction,
-                "best_net_spread": self.spread.best_net_spread,
-                "entry_cost": self.spread.entry_cost,
-                "exit_cost": self.spread.exit_cost,
-            } if self.spread else None,
-            "funding_spread_apr": self.funding_spread_apr,
+            "legs": {ex: leg.to_dict() for ex, leg in self.legs.items()},
+            "best_arb_route": self.best_arb.to_dict() if self.best_arb else None,
+            "best_funding_route": self.best_funding.to_dict() if self.best_funding else None,
             "is_stale": self.is_stale,
         }
 
@@ -70,77 +69,89 @@ class AppState:
     def __init__(self):
         self.pairs: dict[str, PairState] = {}
         self._update_callbacks: list = []
+        self.coin_status: dict[str, dict[str, dict]] = {ex: {} for ex in EXCHANGES}
 
-    def init_pairs(self, symbols: list[str]):
+    def init_pairs(self, symbols: list[str], exchange_ids: list[str] | None = None):
+        exchange_ids = exchange_ids or list(EXCHANGES.keys())
         for symbol in symbols:
-            self.pairs[symbol] = PairState(symbol=symbol)
+            pair = PairState(symbol=symbol)
+            for ex in exchange_ids:
+                pair.legs[ex] = ExchangeLeg(
+                    exchange_id=ex,
+                    funding_interval_h=EXCHANGES[ex]["default_funding_interval_h"],
+                )
+            self.pairs[symbol] = pair
 
     def on_update(self, callback):
         self._update_callbacks.append(callback)
 
-    def update_price(
-        self, exchange: str, symbol: str, price: float,
+    def update_coin_status(self, exchange: str, status: dict[str, dict]):
+        self.coin_status[exchange] = status
+
+    def coin_status_for(self, symbol: str) -> dict:
+        candidates = base_coin_candidates(symbol)
+        out: dict = {"coin": candidates[0]}
+        for ex in EXCHANGES:
+            ex_map = self.coin_status.get(ex, {})
+            match = next((ex_map[c] for c in candidates if c in ex_map), None)
+            out[f"{ex}_deposit"] = match["deposit"] if match else None
+            out[f"{ex}_withdraw"] = match["withdraw"] if match else None
+        return out
+
+    def update_leg(
+        self,
+        exchange_id: str,
+        symbol: str,
+        mark_price: float,
         funding_rate: float | None = None,
         next_funding_time: float | None = None,
         funding_interval_h: float | None = None,
     ):
-        if symbol not in self.pairs:
+        pair = self.pairs.get(symbol)
+        if not pair:
+            return
+        leg = pair.legs.get(exchange_id)
+        if not leg:
             return
 
-        pair = self.pairs[symbol]
         now = time.time()
+        leg.mark_price = mark_price
+        leg.last_update = now
+        if funding_rate is not None:
+            leg.funding_rate = funding_rate
+        if next_funding_time is not None:
+            leg.next_funding_time = next_funding_time
+        if funding_interval_h is not None:
+            leg.funding_interval_h = funding_interval_h
 
-        if exchange == "binance":
-            pair.price_binance = price
-            pair.last_update_binance = now
-            if funding_rate is not None:
-                pair.funding_binance = funding_rate
-            if next_funding_time is not None:
-                pair.next_funding_time_binance = next_funding_time
-            if funding_interval_h is not None:
-                pair.funding_interval_h_binance = funding_interval_h
-        elif exchange == "bybit":
-            pair.price_bybit = price
-            pair.last_update_bybit = now
-            if funding_rate is not None:
-                pair.funding_bybit = funding_rate
-            if next_funding_time is not None:
-                pair.next_funding_time_bybit = next_funding_time
-            if funding_interval_h is not None:
-                pair.funding_interval_h_bybit = funding_interval_h
-
-        if pair.price_binance > 0 and pair.price_bybit > 0:
-            pair.spread = calc_spread(pair.price_binance, pair.price_bybit)
-            pair.funding_spread_apr = calc_funding_spread_apr(
-                pair.funding_binance, pair.funding_bybit,
-                pair.funding_interval_h_binance, pair.funding_interval_h_bybit,
-            )
-            pair.history.append(SpreadSnapshot(
+        priced_legs = {ex: l for ex, l in pair.legs.items() if l.mark_price > 0}
+        if len(priced_legs) >= 2:
+            pair.best_arb = best_arb_route(priced_legs)
+            pair.best_funding = best_funding_route(priced_legs)
+            pair.history.append(PriceSnapshot(
                 timestamp=now,
-                spread_ab=pair.spread.spread_ab,
-                spread_ba=pair.spread.spread_ba,
-                price_binance=pair.price_binance,
-                price_bybit=pair.price_bybit,
+                prices={ex: l.mark_price for ex, l in priced_legs.items()},
             ))
 
         for cb in self._update_callbacks:
             cb(symbol, pair)
 
     def get_all_pairs(self) -> list[dict]:
-        return [p.to_dict() for p in self.pairs.values() if p.spread is not None]
+        out = []
+        for p in self.pairs.values():
+            if p.best_arb is None:
+                continue
+            d = p.to_dict()
+            d["coin_status"] = self.coin_status_for(p.symbol)
+            out.append(d)
+        return out
 
     def get_history(self, symbol: str) -> list[dict]:
         pair = self.pairs.get(symbol)
         if not pair:
             return []
         return [
-            {
-                "timestamp": s.timestamp,
-                "spread_ab": s.spread_ab,
-                "spread_ba": s.spread_ba,
-                "price_binance": s.price_binance,
-                "price_bybit": s.price_bybit,
-            }
+            {"timestamp": s.timestamp, "prices": s.prices}
             for s in pair.history
         ]
 

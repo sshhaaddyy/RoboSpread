@@ -1,78 +1,93 @@
 from dataclasses import dataclass
-from config import BINANCE_TAKER_FEE, BYBIT_TAKER_FEE, ROUND_TRIP_FEE
+from itertools import permutations
+
+from config import EXCHANGES, round_trip_fee_pct
 
 
 @dataclass
-class SpreadResult:
-    # Long Binance / Short Bybit
-    spread_ab: float        # raw spread %
-    net_spread_ab: float    # after fees %
-    # Long Bybit / Short Binance
-    spread_ba: float        # raw spread %
-    net_spread_ba: float    # after fees %
-    # Best direction
-    best_direction: str     # "long_binance" or "long_bybit"
-    best_net_spread: float  # best net spread %
-    entry_cost: float       # cost to enter %
-    exit_cost: float        # cost to exit %
+class Route:
+    long_ex: str
+    short_ex: str
+    raw_spread_pct: float       # (price_short - price_long) / price_long * 100
+    instant_edge_pct: float     # raw_spread - round_trip_fee
+    funding_apr_pct: float      # short_leg_apr - long_leg_apr
+    breakeven_h: float | None   # hours funding must pay to cover fees; None if funding <= 0
+    entry_cost_pct: float       # taker_long + taker_short (one side)
+    exit_cost_pct: float        # same
+    round_trip_fee_pct: float
+
+    def to_dict(self) -> dict:
+        return {
+            "long_ex": self.long_ex,
+            "short_ex": self.short_ex,
+            "raw_spread_pct": round(self.raw_spread_pct, 4),
+            "instant_edge_pct": round(self.instant_edge_pct, 4),
+            "funding_apr_pct": round(self.funding_apr_pct, 4),
+            "breakeven_h": round(self.breakeven_h, 2) if self.breakeven_h is not None else None,
+            "entry_cost_pct": round(self.entry_cost_pct, 4),
+            "exit_cost_pct": round(self.exit_cost_pct, 4),
+            "round_trip_fee_pct": round(self.round_trip_fee_pct, 4),
+        }
 
 
-def calc_spread(price_binance: float, price_bybit: float) -> SpreadResult:
-    """
-    Calculate spread between two exchanges in both directions.
+def _leg_funding_apr(leg) -> float:
+    interval = leg.funding_interval_h or 8.0
+    return leg.funding_rate * (24.0 / interval) * 365 * 100
 
-    Long Binance / Short Bybit: you buy on Binance (lower price), sell on Bybit (higher price)
-      → spread = (bybit - binance) / binance * 100
 
-    Long Bybit / Short Binance: opposite direction
-      → spread = (binance - bybit) / bybit * 100
+def compute_route(legs: dict, long_ex: str, short_ex: str) -> Route | None:
+    if long_ex == short_ex:
+        return None
+    long_leg = legs.get(long_ex)
+    short_leg = legs.get(short_ex)
+    if not long_leg or not short_leg:
+        return None
+    if long_leg.mark_price <= 0 or short_leg.mark_price <= 0:
+        return None
 
-    Entry cost = taker fee on both exchanges (one buy, one sell)
-    Exit cost = same (close both positions)
-    Total round-trip = 2 * (binance_fee + bybit_fee)
-    """
-    if price_binance <= 0 or price_bybit <= 0:
-        return SpreadResult(0, 0, 0, 0, "none", 0, 0, 0)
+    raw = ((short_leg.mark_price - long_leg.mark_price) / long_leg.mark_price) * 100
+    rt_fee = round_trip_fee_pct(long_ex, short_ex)
+    instant_edge = raw - rt_fee
+    entry = EXCHANGES[long_ex]["taker_fee"] + EXCHANGES[short_ex]["taker_fee"]
+    exit_cost = entry
 
-    # Raw spreads
-    spread_ab = ((price_bybit - price_binance) / price_binance) * 100
-    spread_ba = ((price_binance - price_bybit) / price_bybit) * 100
+    funding_apr = _leg_funding_apr(short_leg) - _leg_funding_apr(long_leg)
+    breakeven = (rt_fee / (funding_apr / 8760)) if funding_apr > 0 else None
 
-    # Fee costs (entry = open both sides, exit = close both sides)
-    entry_cost = BINANCE_TAKER_FEE + BYBIT_TAKER_FEE  # 0.095%
-    exit_cost = BINANCE_TAKER_FEE + BYBIT_TAKER_FEE    # 0.095%
-
-    # Net spreads after round-trip fees
-    net_spread_ab = spread_ab - ROUND_TRIP_FEE
-    net_spread_ba = spread_ba - ROUND_TRIP_FEE
-
-    if net_spread_ab >= net_spread_ba:
-        best_direction = "long_binance"
-        best_net = net_spread_ab
-    else:
-        best_direction = "long_bybit"
-        best_net = net_spread_ba
-
-    return SpreadResult(
-        spread_ab=round(spread_ab, 4),
-        net_spread_ab=round(net_spread_ab, 4),
-        spread_ba=round(spread_ba, 4),
-        net_spread_ba=round(net_spread_ba, 4),
-        best_direction=best_direction,
-        best_net_spread=round(best_net, 4),
-        entry_cost=round(entry_cost, 4),
-        exit_cost=round(exit_cost, 4),
+    return Route(
+        long_ex=long_ex,
+        short_ex=short_ex,
+        raw_spread_pct=raw,
+        instant_edge_pct=instant_edge,
+        funding_apr_pct=funding_apr,
+        breakeven_h=breakeven,
+        entry_cost_pct=entry,
+        exit_cost_pct=exit_cost,
+        round_trip_fee_pct=rt_fee,
     )
 
 
-def calc_funding_spread_apr(
-    funding_binance: float, funding_bybit: float,
-    interval_h_binance: float = 8.0, interval_h_bybit: float = 8.0,
-) -> float:
-    """
-    Calculate annualized funding spread, normalized by each exchange's interval.
-    Annual rate = raw_rate * (24 / interval_hours) * 365 * 100
-    """
-    annual_bn = funding_binance * (24 / interval_h_binance) * 365 * 100
-    annual_bb = funding_bybit * (24 / interval_h_bybit) * 365 * 100
-    return round(annual_bn - annual_bb, 4)
+def all_routes(legs: dict) -> list[Route]:
+    """All ordered (long_ex, short_ex) permutations with valid prices on both legs."""
+    out = []
+    for long_ex, short_ex in permutations(legs.keys(), 2):
+        r = compute_route(legs, long_ex, short_ex)
+        if r is not None:
+            out.append(r)
+    return out
+
+
+def best_arb_route(legs: dict) -> Route | None:
+    """Highest instant_edge_pct across all pair permutations."""
+    routes = all_routes(legs)
+    if not routes:
+        return None
+    return max(routes, key=lambda r: r.instant_edge_pct)
+
+
+def best_funding_route(legs: dict) -> Route | None:
+    """Highest funding APR net of one-time round-trip fee."""
+    routes = all_routes(legs)
+    if not routes:
+        return None
+    return max(routes, key=lambda r: r.funding_apr_pct - r.round_trip_fee_pct)
