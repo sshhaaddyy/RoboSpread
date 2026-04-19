@@ -1,5 +1,23 @@
 # RoboSpread Changelog
 
+## 2026-04-19 — `/model-chat` skill (5-agent debate room)
+
+- **`.claude/skills/model-chat/SKILL.md`**: multi-agent debate room. Spawns 5 role-stake personas (Skeptic · Domain expert scoped · User advocate · Pragmatist · Synthesizer-as-**peer** not judge) that debate a topic over up to 5 rounds using **broadcast-revise** (all agents see the frozen prior-round transcript and generate in parallel within the round via one message with 5 `Agent` tool calls — NOT sequential handoff, which causes early-anchor bias per Du et al. MAD).
+- **Anti-sycophancy guards** (non-negotiable — RLHF training causes same-model ensembles to collapse to false consensus by round 2–3 per Liang et al. 2023): original-position pinning every round ≥ 2, anti-capitulation prompt requiring a named new argument to justify any flip, devil's-advocate stopping rule for the Skeptic, asymmetric priors over temperature variance.
+- **Stopping**: hard cap 5 rounds (clamp 2–7 via `rounds=N`) + conclusion-token stability early-stop at K=2 consecutive matching rounds. Hard cap is non-negotiable because dynamic-only stopping can stall on adversarial prompts.
+- **Structured JSON schema** per agent (`{round, agent, stance, argument, conclusion_token, changed_from_last_round, change_justification}`) — prevents context bloat at 5×5=25 messages and makes early-stop mechanical (MetaGPT lesson).
+- **Models**: sonnet for Roles 1–4, opus for Role 5 + final synthesis. Default-saves transcript + synthesis to `model-chat/<date>-<slug>.md`.
+- **Built via `/research`**: 3-angle fan-out (persona differentiation [deep], convergence+termination [deep], prior art [standard]) → opus synthesizer with Decision template → 2 `[CRITICAL_GAP]` tags skipped because both are "no empirical data exists on 5+ same-model agents" — solvable only by empirical testing, not more research. Full brief at `research/2026-04-19-model-chat-design.md`.
+- Triggers: `/model-chat`, "model chat", "multi model debate", "agent debate", "spawn a chat room".
+
+## 2026-04-19 — `/consensus` skill (stochastic multi-agent voting)
+
+- **`.claude/skills/consensus/SKILL.md`**: spawns N parallel agents (default **10**, clamp 3–20) on the SAME question with near-identical prompts — only "Sample #K of N" varies, which breaks prompt-cache dedupe so each agent samples independently. Every other perturbation (perspective hints like "from a security lens") is explicitly banned because it biases the pool and destroys the consensus signal.
+- Each agent emits a **structured JSON response** (7 default schemas mapped by question shape: recommendation / pick / rank / ideas / verdict / review / fallback). An **opus** synthesizer buckets them into `CONSENSUS` (modal answer held by ≥⌈N/2⌉), `SPLITS` (factions ≥20% of N), `OUTLIERS` (positions held by exactly 1 agent — often the most interesting), `CONFIDENCE` (high ≥80% / med 50–80% / low <50%), `DISTRIBUTION` (one-line tally).
+- **Workers on sonnet, synthesizer on opus** — same rationale as `/research`. Synthesizer is explicitly told to report the distribution, not adjudicate.
+- **Opt-in save** (opposite of `/research`'s default-save) — consensus outputs are usually throwaway probes.
+- Complements `/research` (distinct angles per agent) and `/clarify` (disambiguate before acting). Anti-patterns called out: biased perspective hints, unstructured outputs, per-worker opus, synthesizer-on-sonnet.
+
 ## 2026-04-19 — `/clarify` + `/research` skills
 
 - **`.claude/skills/clarify/SKILL.md`**: `/clarify <prompt>` batches 2–5 structured clarifying questions via `AskUserQuestion` before executing an ambiguous request. Position-invariant — the `/clarify` token can appear anywhere in the user's message. Motivated by the "move all exchanges to APIs" incident where ccxt→native and WS→REST were both plausible readings.
