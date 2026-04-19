@@ -22,6 +22,10 @@ description: <one-line description of when this skill applies>
   (REST discovery, WS connector, config registry, pair-discovery, history,
   CHANGELOG). Distilled from the 5 venues added so far (Hyperliquid, Bitget,
   Gate, MEXC, Aster).
+- `clarify/` — batch 2–5 clarifying questions into one structured
+  `AskUserQuestion` call before executing an ambiguous request. Invoke as
+  `/clarify <prompt>` or `/clarify` alone. Prevents "move to APIs"-style
+  terminology collisions from causing wasted work.
 
 ## Authoring new skills
 
