@@ -6,7 +6,8 @@ from collections import Counter
 import ccxt
 
 from config import EXCHANGES, MIN_EXCHANGES_PER_PAIR
-from exchange.bitget_discovery import discover_bitget, _set_interval_cache
+from exchange.bitget_discovery import discover_bitget, _set_interval_cache as _bitget_set_intervals
+from exchange.gate_discovery import discover_gate, _set_caches as _gate_set_caches
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +90,13 @@ def _discover_hyperliquid() -> dict[str, str]:
 
 def _discover_bitget_wrapped() -> dict[str, str]:
     natives, intervals = discover_bitget()
-    _set_interval_cache(intervals)
+    _bitget_set_intervals(intervals)
+    return natives
+
+
+def _discover_gate_wrapped() -> dict[str, str]:
+    natives, intervals, next_applies = discover_gate()
+    _gate_set_caches(intervals, next_applies)
     return natives
 
 
@@ -98,6 +105,7 @@ _DISCOVERY_FUNCS = {
     "bybit": _discover_bybit,
     "hyperliquid": _discover_hyperliquid,
     "bitget": _discover_bitget_wrapped,
+    "gate": _discover_gate_wrapped,
 }
 
 

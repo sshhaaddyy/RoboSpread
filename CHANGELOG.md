@@ -1,5 +1,15 @@
 # RoboSpread Changelog
 
+## 2026-04-19 — Phase 10: Gate connector
+
+- `backend/exchange/gate_discovery.py`: native REST `GET /api/v4/futures/usdt/contracts`. Returns `{canonical: native}` + `{canonical: funding_interval_h}` + `{canonical: funding_next_apply_unix}`. `BTC_USDT → BTCUSDT` canonical translation. Gate's perp universe = 667 USDT-settled (350 at 8h, 311 at 4h, 6 at 1h).
+- `backend/exchange/gate_ws.py`: Gate v4 USDT-futures public WS at `wss://fx-ws.gateio.ws/v4/ws/usdt`, `futures.tickers` channel. Subscribe envelope is `{time,channel,event:"subscribe",payload:[...]}` (no op/args shape), so `CexWSBase._build_subscribe_message` was generalized to let subclasses override the envelope. Gate relies on server-driven protocol pings — `enable_app_ping=False`, `websocket_ping_interval=20`, library auto-responds.
+- Gate's ticker push omits `funding_interval` and `funding_next_apply` (confirmed on the wire — only `funding_rate` and `funding_rate_indicative` are there). `gate_discovery.current_next_funding(canonical)` advances the REST-seeded `funding_next_apply` forward by `funding_interval` on each tick so the frontend countdown stays correct without re-polling.
+- `backend/exchange/cex_ws_base.py`: added `websocket_ping_interval` + `enable_app_ping` knobs, generalized `_build_subscribe_message(batch)` hook, default `_is_control_message` left on Bitget-style (Gate overrides to keep event="update" frames).
+- `backend/config.py`: `EXCHANGES["gate"]` with taker 0.05% / maker 0.02% (base tier), default 8h interval.
+- `backend/main.py` + `backend/exchange/pair_discovery.py` + `backend/exchange/history.py`: Gate wired through startup, discovery, and ccxt kline fallback.
+- Verified: 575 pairs across 5 exchanges (binance=548, bybit=484, hyperliquid=187, bitget=501, gate=526). BTCUSDT shows all 5 live legs. AIXBTUSDT Gate leg reports 4h interval (live, not defaulted).
+
 ## 2026-04-19 — Phase 9: CEX shared base + Bitget
 
 - `backend/exchange/cex_ws_base.py`: new `CexWSBase` shared connector. Handles batched subscribe, string-ping keepalive, reconnect-with-resubscribe (via parent `run_forever`), and control-frame filtering. Subclasses override `_subscribe_arg(native)` + `_handle_message(msg)`. Gate/MEXC/Aster will inherit from this — Bybit left on its own path for now.

@@ -52,6 +52,18 @@ EXCHANGES: dict[str, dict] = {
         "default_funding_interval_h": 8.0,
         "ws_url": "wss://ws.bitget.com/v2/ws/public",
     },
+    "gate": {
+        "id": "gate",
+        "name": "Gate Futures",
+        "short_name": "Gate",
+        "icon": "https://assets.coingecko.com/markets/images/60/small/gate_io_logo.jpg",
+        "color": "#2cb9e8",
+        "letter": "G",
+        "maker_fee": 0.02,
+        "taker_fee": 0.05,
+        "default_funding_interval_h": 8.0,
+        "ws_url": "wss://fx-ws.gateio.ws/v4/ws/usdt",
+    },
 }
 
 # Minimum number of exchanges a symbol must be listed on to be tracked.
