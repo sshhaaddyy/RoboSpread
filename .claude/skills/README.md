@@ -32,6 +32,14 @@ description: <one-line description of when this skill applies>
   **opus**) that outputs a structured brief (TL;DR, consensus,
   tensions, gaps, recommendation, sources). Invoke as `/research
   <question>`.
+- `consensus/` — stochastic multi-agent consensus. Spawns N parallel
+  agents (default **10**) on the SAME question with near-identical
+  prompts (only "Sample #K" varies), each emitting a structured JSON
+  response; an **opus** synthesizer buckets them into consensus
+  (mode), splits (factions ≥20%), and outliers (unique ideas). Use
+  for brainstorming with diversity, uncertainty calibration, or
+  validation by majority — NOT for decomposable research (that's
+  `/research`). Invoke as `/consensus <question>` (optional `n=N`).
 
 ## Authoring new skills
 
