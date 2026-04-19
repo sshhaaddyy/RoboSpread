@@ -8,6 +8,7 @@ import ccxt
 from config import EXCHANGES, MIN_EXCHANGES_PER_PAIR
 from exchange.bitget_discovery import discover_bitget, _set_interval_cache as _bitget_set_intervals
 from exchange.gate_discovery import discover_gate, _set_caches as _gate_set_caches
+from exchange.mexc_discovery import discover_mexc
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +107,7 @@ _DISCOVERY_FUNCS = {
     "hyperliquid": _discover_hyperliquid,
     "bitget": _discover_bitget_wrapped,
     "gate": _discover_gate_wrapped,
+    "mexc": discover_mexc,
 }
 
 

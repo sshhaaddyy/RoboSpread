@@ -64,6 +64,18 @@ EXCHANGES: dict[str, dict] = {
         "default_funding_interval_h": 8.0,
         "ws_url": "wss://fx-ws.gateio.ws/v4/ws/usdt",
     },
+    "mexc": {
+        "id": "mexc",
+        "name": "MEXC Futures",
+        "short_name": "MEXC",
+        "icon": "https://assets.coingecko.com/markets/images/409/small/mexc-logo.png",
+        "color": "#00b897",
+        "letter": "M",
+        "maker_fee": 0.00,
+        "taker_fee": 0.02,
+        "default_funding_interval_h": 8.0,
+        "ws_url": "wss://contract.mexc.com/edge",
+    },
 }
 
 # Minimum number of exchanges a symbol must be listed on to be tracked.

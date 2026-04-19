@@ -1,5 +1,14 @@
 # RoboSpread Changelog
 
+## 2026-04-19 — Phase 11: MEXC connector
+
+- `backend/exchange/mexc_discovery.py`: native REST `GET https://contract.mexc.com/api/v1/contract/detail`. Returns `{canonical: native}` only — `BTC_USDT → BTCUSDT`. Filters by `quoteCoin=="USDT"`, `state==0` (trading), skips `isHidden` / `preMarket`. MEXC's contract detail does **not** carry funding interval, so no interval cache is seeded at discovery.
+- `backend/exchange/mexc_ws.py`: public WS at `wss://contract.mexc.com/edge`. Uses the **bulk** `sub.tickers` channel (no symbol arg) — one subscription pushes `fairPrice` for every symbol at ~1 Hz, far cheaper than 800+ per-symbol subs. Standalone connector (does not inherit `CexWSBase`) because of the bulk subscribe + protocol-level ping shape. Ping = `{"method":"ping"}` every 15s; drop after ~60s silence.
+- Funding rate / interval / next settle come from a **separate REST poll** (`GET /api/v1/contract/funding_rate`, 30s cadence). Per-tick `sub.ticker` does carry `fundingRate` but omits `collectCycle` + `nextSettleTime`, so the REST poll is load-bearing. Funding updates are routed through `state.update_leg(...)` with the last-known mark price so `best_arb` / `best_funding` recompute and the frontend sees fresh numbers without waiting for the next price tick.
+- `backend/config.py`: `EXCHANGES["mexc"]` with taker 0.02% / maker 0.00% (public tier — MEXC is the cheapest venue we track).
+- `backend/main.py` + `backend/exchange/pair_discovery.py` + `backend/exchange/history.py`: MEXC wired through startup, discovery, and ccxt kline fallback.
+- Verified: backend boots with **6 exchanges**, 643 pairs total. BTCUSDT shows all 6 live legs with mark price, funding rate, interval, and next-funding-time populated. MEXC contributes 573 legs (of 755 discovered perps). Funding poll delivers live interval (`collectCycle=8`) per symbol — no default-interval reliance.
+
 ## 2026-04-19 — Phase 10: Gate connector
 
 - `backend/exchange/gate_discovery.py`: native REST `GET /api/v4/futures/usdt/contracts`. Returns `{canonical: native}` + `{canonical: funding_interval_h}` + `{canonical: funding_next_apply_unix}`. `BTC_USDT → BTCUSDT` canonical translation. Gate's perp universe = 667 USDT-settled (350 at 8h, 311 at 4h, 6 at 1h).
