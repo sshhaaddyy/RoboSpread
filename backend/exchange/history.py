@@ -1,5 +1,9 @@
-import ccxt
+import json
 import logging
+import urllib.parse
+import urllib.request
+
+import ccxt
 
 from engine.state import state
 
@@ -49,7 +53,31 @@ def _ccxt_symbol(exchange_id: str, canonical: str) -> str | None:
     return None
 
 
+_ASTER_INTERVAL = {
+    "1m": "1m", "3m": "3m", "5m": "5m", "15m": "15m", "30m": "30m",
+    "1h": "1h", "2h": "2h", "4h": "4h", "6h": "6h", "8h": "8h",
+    "12h": "12h", "1d": "1d", "3d": "3d", "1w": "1w", "1M": "1M",
+}
+
+
+def _fetch_aster_klines(canonical: str, timeframe: str, limit: int) -> list:
+    """Native Aster kline fetch (ccxt doesn't ship an Aster adapter).
+    Aster is Binance-fapi compatible — /fapi/v1/markPriceKlines returns
+    [openTime, open, high, low, close, ...]."""
+    interval = _ASTER_INTERVAL.get(timeframe)
+    if not interval:
+        return []
+    url = "https://fapi.asterdex.com/fapi/v1/markPriceKlines?" + urllib.parse.urlencode({
+        "symbol": canonical, "interval": interval, "limit": min(limit, 1500),
+    })
+    with urllib.request.urlopen(url, timeout=15) as resp:
+        rows = json.loads(resp.read())
+    return [[int(r[0]), float(r[1]), float(r[2]), float(r[3]), float(r[4]), 0] for r in rows]
+
+
 def _fetch_ohlcv(exchange_id: str, canonical_symbol: str, timeframe: str, limit: int) -> list:
+    if exchange_id == "aster":
+        return _fetch_aster_klines(canonical_symbol, timeframe, limit)
     client = _get_client(exchange_id)
     symbol = _ccxt_symbol(exchange_id, canonical_symbol)
     if not symbol:

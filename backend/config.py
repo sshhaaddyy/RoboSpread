@@ -76,6 +76,18 @@ EXCHANGES: dict[str, dict] = {
         "default_funding_interval_h": 8.0,
         "ws_url": "wss://contract.mexc.com/edge",
     },
+    "aster": {
+        "id": "aster",
+        "name": "Aster Futures",
+        "short_name": "Aster",
+        "icon": "https://assets.coingecko.com/markets/images/1830/small/aster.png",
+        "color": "#ff6b35",
+        "letter": "A",
+        "maker_fee": 0.01,
+        "taker_fee": 0.035,
+        "default_funding_interval_h": 8.0,
+        "ws_url": "wss://fstream.asterdex.com/stream?streams=!markPrice@arr@1s",
+    },
 }
 
 # Minimum number of exchanges a symbol must be listed on to be tracked.

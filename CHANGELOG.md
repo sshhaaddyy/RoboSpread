@@ -1,5 +1,14 @@
 # RoboSpread Changelog
 
+## 2026-04-19 — Phase 12: Aster connector (7 exchanges live)
+
+- `backend/exchange/aster_discovery.py`: native REST `GET /fapi/v3/exchangeInfo` (symbols with `contractType=PERPETUAL`, `status=TRADING`, `quoteAsset=USDT`) + `GET /fapi/v3/fundingInfo` (per-symbol `fundingIntervalHours`). Aster is Binance-fapi compatible — canonical == native (`BTCUSDT`). 350 trading perps, interval mix: 259 at 1h, 174 at 8h, 58 at 4h, 3 at 2h.
+- `backend/exchange/aster_ws.py`: combined-stream `wss://fstream.asterdex.com/stream?streams=!markPrice@arr@1s`. Tick format is byte-identical to Binance's `markPriceUpdate` (`{e,E,s,p,P,i,r,T}`). `funding_interval_h` attached from the discovery cache (not on tick). Server-driven pings every 5min; library auto-pongs.
+- `backend/config.py`: `EXCHANGES["aster"]` with taker 0.035% / maker 0.01%.
+- `backend/exchange/history.py`: native kline fetch via `/fapi/v1/markPriceKlines` (ccxt doesn't ship an Aster adapter). Binance-compatible response shape, converted to ccxt tuple format for the existing outer-join logic.
+- `backend/main.py` + `backend/exchange/pair_discovery.py`: wired through startup + discovery. Total exchange count = 7.
+- Verified: 654 symbols listed on 2+ venues. BTCUSDT shows **all 7 legs live** with mark price, funding rate, interval, and next-funding-time populated. Aster's per-symbol interval variety confirmed (`0GUSDT=1h`, `1000BONKUSDT=4h`, `BTCUSDT=8h`) — no default-interval reliance.
+
 ## 2026-04-19 — Phase 11: MEXC connector
 
 - `backend/exchange/mexc_discovery.py`: native REST `GET https://contract.mexc.com/api/v1/contract/detail`. Returns `{canonical: native}` only — `BTC_USDT → BTCUSDT`. Filters by `quoteCoin=="USDT"`, `state==0` (trading), skips `isHidden` / `preMarket`. MEXC's contract detail does **not** carry funding interval, so no interval cache is seeded at discovery.

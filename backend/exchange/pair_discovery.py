@@ -9,6 +9,7 @@ from config import EXCHANGES, MIN_EXCHANGES_PER_PAIR
 from exchange.bitget_discovery import discover_bitget, _set_interval_cache as _bitget_set_intervals
 from exchange.gate_discovery import discover_gate, _set_caches as _gate_set_caches
 from exchange.mexc_discovery import discover_mexc
+from exchange.aster_discovery import discover_aster, _set_interval_cache as _aster_set_intervals
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +102,12 @@ def _discover_gate_wrapped() -> dict[str, str]:
     return natives
 
 
+def _discover_aster_wrapped() -> dict[str, str]:
+    natives, intervals = discover_aster()
+    _aster_set_intervals(intervals)
+    return natives
+
+
 _DISCOVERY_FUNCS = {
     "binance": _discover_binance,
     "bybit": _discover_bybit,
@@ -108,6 +115,7 @@ _DISCOVERY_FUNCS = {
     "bitget": _discover_bitget_wrapped,
     "gate": _discover_gate_wrapped,
     "mexc": discover_mexc,
+    "aster": _discover_aster_wrapped,
 }
 
 
