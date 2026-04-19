@@ -50,10 +50,13 @@ class PairState:
 
     @property
     def is_stale(self) -> bool:
-        active = [leg for leg in self.legs.values() if leg.last_update > 0]
-        if len(active) < 2:
-            return True
-        return any(leg.is_stale for leg in active)
+        # Pair is live whenever at least 2 of its legs have fresh data.
+        # A single laggy venue shouldn't gray out a 3+-leg pair.
+        fresh = [
+            leg for leg in self.legs.values()
+            if leg.last_update > 0 and not leg.is_stale
+        ]
+        return len(fresh) < 2
 
     def to_dict(self) -> dict:
         return {
@@ -71,11 +74,22 @@ class AppState:
         self._update_callbacks: list = []
         self.coin_status: dict[str, dict[str, dict]] = {ex: {} for ex in EXCHANGES}
 
-    def init_pairs(self, symbols: list[str], exchange_ids: list[str] | None = None):
-        exchange_ids = exchange_ids or list(EXCHANGES.keys())
-        for symbol in symbols:
+    def init_pairs(self, per_exchange: dict[str, dict[str, str]]):
+        """Create PairState for the union of symbols across all exchanges.
+
+        `per_exchange[exchange_id][canonical_symbol] = native_symbol` — a leg is
+        only created for the exchanges that actually list the pair, so a 2-venue
+        pair on Binance+Bybit stays 2-legged while a 3-venue pair grows a
+        Hyperliquid leg.
+        """
+        all_symbols: set[str] = set()
+        for m in per_exchange.values():
+            all_symbols.update(m.keys())
+        for symbol in sorted(all_symbols):
             pair = PairState(symbol=symbol)
-            for ex in exchange_ids:
+            for ex, m in per_exchange.items():
+                if symbol not in m:
+                    continue
                 pair.legs[ex] = ExchangeLeg(
                     exchange_id=ex,
                     funding_interval_h=EXCHANGES[ex]["default_funding_interval_h"],

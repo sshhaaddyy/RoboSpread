@@ -27,7 +27,39 @@ EXCHANGES: dict[str, dict] = {
         "default_funding_interval_h": 8.0,
         "ws_url": "wss://stream.bybit.com/v5/public/linear",
     },
+    "hyperliquid": {
+        "id": "hyperliquid",
+        "name": "Hyperliquid",
+        "short_name": "Hyperliquid",
+        "icon": "https://assets.coingecko.com/markets/images/1131/small/hyperliquid.png",
+        "color": "#97fce4",
+        "letter": "H",
+        "maker_fee": 0.01,
+        "taker_fee": 0.035,
+        "default_funding_interval_h": 1.0,
+        "ws_url": "wss://api.hyperliquid.xyz/ws",
+        "info_url": "https://api.hyperliquid.xyz/info",
+    },
+    "bitget": {
+        "id": "bitget",
+        "name": "Bitget Futures",
+        "short_name": "Bitget",
+        "icon": "https://assets.coingecko.com/markets/images/540/small/bitget_logo.jpg",
+        "color": "#00f0ff",
+        "letter": "Bg",
+        "maker_fee": 0.02,
+        "taker_fee": 0.06,
+        "default_funding_interval_h": 8.0,
+        "ws_url": "wss://ws.bitget.com/v2/ws/public",
+    },
 }
+
+# Minimum number of exchanges a symbol must be listed on to be tracked.
+# Start at 2 while we have 3 venues; raise once there are more to cut noise.
+MIN_EXCHANGES_PER_PAIR = 2
+
+# Hyperliquid funding poll interval (funding only changes hourly, so 30s is plenty)
+HYPERLIQUID_FUNDING_POLL_SEC = 30
 
 
 def round_trip_fee_pct(long_ex: str, short_ex: str) -> float:

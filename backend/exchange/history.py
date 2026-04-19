@@ -1,6 +1,8 @@
 import ccxt
 import logging
 
+from engine.state import state
+
 logger = logging.getLogger(__name__)
 
 _clients: dict[str, object] = {}
@@ -13,32 +15,59 @@ def _get_client(exchange_id: str):
         _clients[exchange_id] = ccxt.binance({"options": {"defaultType": "future"}})
     elif exchange_id == "bybit":
         _clients[exchange_id] = ccxt.bybit({"options": {"defaultType": "future"}})
+    elif exchange_id == "hyperliquid":
+        _clients[exchange_id] = ccxt.hyperliquid()
+    elif exchange_id == "bitget":
+        _clients[exchange_id] = ccxt.bitget({"options": {"defaultType": "swap"}})
     else:
         raise ValueError(f"No ccxt client configured for {exchange_id}")
     return _clients[exchange_id]
 
 
-def _fetch_ohlcv(exchange_id: str, symbol: str, timeframe: str, limit: int) -> list:
+def _ccxt_symbol(exchange_id: str, canonical: str) -> str | None:
+    """Translate our canonical Binance-style id (BTCUSDT, 1000PEPEUSDT) into the
+    ccxt symbol string the target exchange expects."""
+    if exchange_id in ("binance", "bybit", "bitget"):
+        return canonical.replace("USDT", "/USDT:USDT")
+    if exchange_id == "hyperliquid":
+        pair = state.pairs.get(canonical)
+        leg = pair.legs.get("hyperliquid") if pair else None
+        if leg is None:
+            return None
+        # We don't store the native symbol on the leg, so recover it from
+        # the canonical via the inverse of _hl_canonical_from_native.
+        base = canonical[:-4] if canonical.endswith("USDT") else canonical
+        if base.startswith("1000"):
+            native = "k" + base[4:]
+        else:
+            native = base
+        return f"{native}/USDC:USDC"
+    return None
+
+
+def _fetch_ohlcv(exchange_id: str, canonical_symbol: str, timeframe: str, limit: int) -> list:
     client = _get_client(exchange_id)
+    symbol = _ccxt_symbol(exchange_id, canonical_symbol)
+    if not symbol:
+        return []
+    params = {"price": "mark"} if exchange_id in ("binance", "bybit", "bitget") else {}
     return client.fetch_ohlcv(
-        symbol.replace("USDT", "/USDT:USDT"),
+        symbol,
         timeframe=timeframe,
         limit=limit,
-        params={"price": "mark"},
+        params=params,
     )
 
 
 def fetch_historical_spread(symbol: str, timeframe: str = "1m", limit: int = 500) -> list[dict]:
-    """
-    Fetch historical mark-price klines from every registered exchange and return
-    a list of snapshots: [{timestamp, prices: {exchange_id: close_price}}].
-    Timestamps without a value from every exchange are still returned — the frontend
-    filters legs it needs for the chosen route.
-    """
-    from config import EXCHANGES
+    """Fetch mark-price klines from every exchange that lists the pair, outer-join
+    timestamps, and return [{timestamp, prices: {exchange_id: close}}]."""
+    pair = state.pairs.get(symbol)
+    if not pair:
+        return []
 
     per_ex: dict[str, dict[int, float]] = {}
-    for ex in EXCHANGES.keys():
+    for ex in pair.legs.keys():
         try:
             klines = _fetch_ohlcv(ex, symbol, timeframe, limit)
         except Exception as e:
@@ -55,7 +84,6 @@ def fetch_historical_spread(symbol: str, timeframe: str = "1m", limit: int = 500
     if not per_ex:
         return []
 
-    # Outer-join timestamps across all exchanges
     all_ts = sorted({ts for m in per_ex.values() for ts in m.keys()})
     results = []
     for ts in all_ts:

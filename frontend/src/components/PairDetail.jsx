@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { formatPrice, formatFunding, formatPct } from "../utils/format";
 import { rawSpread } from "../utils/routes";
+import { useExchanges } from "../hooks/useExchanges";
 import SpreadChart from "./SpreadChart";
 
 function useFundingCountdown(nextFundingTimeSec) {
@@ -80,21 +81,6 @@ function TokenIcon({ symbol }) {
   );
 }
 
-const EXCHANGE_META = {
-  binance: {
-    name: "Binance Futures",
-    icon: "https://assets.coingecko.com/markets/images/52/small/binance.jpg",
-    color: "#f0b90b",
-    letter: "B",
-  },
-  bybit: {
-    name: "Bybit Futures",
-    icon: "https://assets.coingecko.com/markets/images/698/small/bybit_spot.png",
-    color: "#f7a600",
-    letter: "By",
-  },
-};
-
 function DirectionArrow({ isLong }) {
   return (
     <svg className="dir-arrow" viewBox="0 0 16 16" width="14" height="14">
@@ -107,8 +93,7 @@ function DirectionArrow({ isLong }) {
   );
 }
 
-function ExchangeIcon({ exchangeKey }) {
-  const meta = EXCHANGE_META[exchangeKey];
+function ExchangeIcon({ meta }) {
   const [errored, setErrored] = useState(false);
   if (!meta) return null;
 
@@ -116,9 +101,9 @@ function ExchangeIcon({ exchangeKey }) {
     return (
       <span
         className="exchange-icon-badge"
-        style={{ background: meta.color }}
+        style={{ background: meta.color || "#555" }}
       >
-        {meta.letter}
+        {meta.letter || "?"}
       </span>
     );
   }
@@ -133,9 +118,9 @@ function ExchangeIcon({ exchangeKey }) {
   );
 }
 
-function DirectionLabel({ longEx, shortEx }) {
-  const longName = EXCHANGE_META[longEx]?.name || longEx;
-  const shortName = EXCHANGE_META[shortEx]?.name || shortEx;
+function DirectionLabel({ longEx, shortEx, exchanges }) {
+  const longName = exchanges[longEx]?.name || longEx;
+  const shortName = exchanges[shortEx]?.name || shortEx;
   return (
     <span className="dir-label">
       <span className="dir-long">
@@ -151,16 +136,16 @@ function DirectionLabel({ longEx, shortEx }) {
   );
 }
 
-function ExchangeBox({ exchangeKey, leg, isLong }) {
-  const meta = EXCHANGE_META[exchangeKey] || { name: exchangeKey };
+function ExchangeBox({ exchangeKey, leg, isLong, meta }) {
+  const resolved = meta || { name: exchangeKey };
   return (
     <div className="exchange-box">
       <div className="exchange-box-header">
         <span className={isLong ? "dir-long" : "dir-short"}>
           <DirectionArrow isLong={isLong} />
         </span>
-        <ExchangeIcon exchangeKey={exchangeKey} />
-        <h3>{meta.name}</h3>
+        <ExchangeIcon meta={resolved} />
+        <h3>{resolved.name}</h3>
       </div>
       <div className="box-row">
         <span>Mark Price</span>
@@ -178,11 +163,33 @@ function ExchangeBox({ exchangeKey, leg, isLong }) {
   );
 }
 
+function LegsStrip({ legs, exchanges }) {
+  const entries = Object.entries(legs || {});
+  if (entries.length === 0) return null;
+  return (
+    <div className="legs-strip">
+      {entries.map(([ex, leg]) => {
+        const meta = exchanges[ex] || { name: ex, letter: ex[0]?.toUpperCase() };
+        const stale = leg.is_stale;
+        return (
+          <div key={ex} className={`legs-strip-chip ${stale ? "stale" : ""}`}>
+            <ExchangeIcon meta={meta} />
+            <span className="legs-strip-name">{meta.short_name || meta.name || ex}</span>
+            <span className="legs-strip-price">{formatPrice(leg.mark_price)}</span>
+            <span className="legs-strip-funding">{formatFunding(leg.funding_rate)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function PairDetail({ symbol, pairData, onBack }) {
   const [history, setHistory] = useState(null);
   const [timeframe, setTimeframe] = useState("5m");
   const [loading, setLoading] = useState(true);
   const [flipped, setFlipped] = useState(false);
+  const exchanges = useExchanges();
   const lastPairData = useRef(pairData);
   if (pairData) lastPairData.current = pairData;
   const data = pairData || lastPairData.current;
@@ -241,7 +248,7 @@ export default function PairDetail({ symbol, pairData, onBack }) {
       </div>
 
       <div className="detail-direction-bar">
-        <DirectionLabel longEx={longEx} shortEx={shortEx} />
+        <DirectionLabel longEx={longEx} shortEx={shortEx} exchanges={exchanges} />
         <button
           className={`flip-btn ${flipped ? "flipped" : ""}`}
           onClick={() => setFlipped(!flipped)}
@@ -252,6 +259,8 @@ export default function PairDetail({ symbol, pairData, onBack }) {
         </button>
       </div>
 
+      <LegsStrip legs={legs} exchanges={exchanges} />
+
       <div className="detail-columns">
         <div className="detail-col">
           <div className="in-out-box">
@@ -260,7 +269,12 @@ export default function PairDetail({ symbol, pairData, onBack }) {
               {formatPct(inVal)}
             </span>
           </div>
-          <ExchangeBox exchangeKey={longEx} leg={legs[longEx]} isLong={true} />
+          <ExchangeBox
+            exchangeKey={longEx}
+            leg={legs[longEx]}
+            isLong={true}
+            meta={exchanges[longEx]}
+          />
         </div>
 
         <div className="detail-col">
@@ -270,7 +284,12 @@ export default function PairDetail({ symbol, pairData, onBack }) {
               {formatPct(outVal)}
             </span>
           </div>
-          <ExchangeBox exchangeKey={shortEx} leg={legs[shortEx]} isLong={false} />
+          <ExchangeBox
+            exchangeKey={shortEx}
+            leg={legs[shortEx]}
+            isLong={false}
+            meta={exchanges[shortEx]}
+          />
         </div>
       </div>
 

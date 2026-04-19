@@ -1,40 +1,148 @@
-import ccxt
+import json
 import logging
+import urllib.request
+from collections import Counter
+
+import ccxt
+
+from config import EXCHANGES, MIN_EXCHANGES_PER_PAIR
+from exchange.bitget_discovery import discover_bitget, _set_interval_cache
 
 logger = logging.getLogger(__name__)
 
 
+def _discover_binance() -> dict[str, str]:
+    """Return {canonical_symbol: native_symbol}. Binance native == canonical."""
+    client = ccxt.binance({"options": {"defaultType": "future"}})
+    markets = client.load_markets()
+    out: dict[str, str] = {}
+    for m in markets.values():
+        if (
+            m.get("linear")
+            and m.get("active")
+            and m.get("settle") == "USDT"
+            and m.get("type") == "swap"
+        ):
+            out[m["id"]] = m["id"]  # "BTCUSDT"
+    return out
+
+
+def _discover_bybit() -> dict[str, str]:
+    """Return {canonical_symbol: native_symbol}. Bybit native == canonical."""
+    client = ccxt.bybit({"options": {"defaultType": "future"}})
+    markets = client.load_markets()
+    out: dict[str, str] = {}
+    for m in markets.values():
+        if (
+            m.get("linear")
+            and m.get("active")
+            and m.get("settle") == "USDT"
+            and m.get("type") == "swap"
+        ):
+            out[m["id"]] = m["id"]
+    return out
+
+
+def _hl_canonical_from_native(native: str) -> str:
+    """Convert a Hyperliquid coin name to canonical Binance-style symbol.
+
+    Hyperliquid uses a `k` prefix for 1000x supply wrappers (kPEPE, kSHIB).
+    Binance/Bybit use `1000PEPE`, so map `kXXX` -> `1000XXX`.
+    """
+    if len(native) > 1 and native[0] == "k" and native[1].isupper():
+        return "1000" + native[1:] + "USDT"
+    return native + "USDT"
+
+
+def _discover_hyperliquid() -> dict[str, str]:
+    """Fetch Hyperliquid's perp universe directly (ccxt drops the k-prefix).
+
+    Returns {canonical_symbol: native_coin_name}, e.g. "1000PEPEUSDT" -> "kPEPE".
+    Only USDC-settled perps are returned — HL also lists USDH/USDE/USDT0-settled
+    variants, which we treat as separate venues and ignore for now.
+    """
+    url = EXCHANGES["hyperliquid"]["info_url"]
+    req = urllib.request.Request(
+        url,
+        data=json.dumps({"type": "meta"}).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read())
+    except Exception as e:
+        logger.error(f"Hyperliquid meta fetch failed: {e}")
+        return {}
+
+    out: dict[str, str] = {}
+    for coin in data.get("universe", []):
+        if coin.get("isDelisted"):
+            continue
+        native = coin.get("name")
+        if not native:
+            continue
+        canonical = _hl_canonical_from_native(native)
+        out[canonical] = native
+    return out
+
+
+def _discover_bitget_wrapped() -> dict[str, str]:
+    natives, intervals = discover_bitget()
+    _set_interval_cache(intervals)
+    return natives
+
+
+_DISCOVERY_FUNCS = {
+    "binance": _discover_binance,
+    "bybit": _discover_bybit,
+    "hyperliquid": _discover_hyperliquid,
+    "bitget": _discover_bitget_wrapped,
+}
+
+
+def discover_pairs() -> tuple[list[str], dict[str, dict[str, str]]]:
+    """Return (common_canonical_symbols, per_exchange_native_map).
+
+    A symbol is included if it is listed on at least MIN_EXCHANGES_PER_PAIR venues.
+    per_exchange_native_map[exchange_id][canonical] = native_symbol.
+    """
+    logger.info("Discovering perp universes across %d exchanges...", len(EXCHANGES))
+
+    exchange_maps: dict[str, dict[str, str]] = {}
+    for ex_id in EXCHANGES:
+        fn = _DISCOVERY_FUNCS.get(ex_id)
+        if not fn:
+            logger.warning("No discovery function for %s, skipping", ex_id)
+            continue
+        try:
+            exchange_maps[ex_id] = fn()
+            logger.info("  %s: %d perps", ex_id, len(exchange_maps[ex_id]))
+        except Exception as e:
+            logger.error("  %s discovery failed: %s", ex_id, e)
+            exchange_maps[ex_id] = {}
+
+    counter: Counter = Counter()
+    for m in exchange_maps.values():
+        counter.update(m.keys())
+
+    common = sorted(s for s, n in counter.items() if n >= MIN_EXCHANGES_PER_PAIR)
+
+    per_ex = {
+        ex: {s: m[s] for s in common if s in m}
+        for ex, m in exchange_maps.items()
+    }
+
+    logger.info(
+        "Found %d symbols listed on %d+ exchanges (union across %d venues)",
+        len(common),
+        MIN_EXCHANGES_PER_PAIR,
+        len(exchange_maps),
+    )
+    return common, per_ex
+
+
+# Backwards-compat shim; keep while callers migrate.
 def discover_common_pairs() -> list[str]:
-    """Find all USDT perpetual futures pairs common to both Binance and Bybit."""
-    logger.info("Discovering common USDT perpetual pairs...")
-
-    binance = ccxt.binance({"options": {"defaultType": "future"}})
-    bybit = ccxt.bybit({"options": {"defaultType": "future"}})
-
-    binance_markets = binance.load_markets()
-    bybit_markets = bybit.load_markets()
-
-    binance_perps = set()
-    for symbol, market in binance_markets.items():
-        if (
-            market.get("linear")
-            and market.get("active")
-            and market.get("settle") == "USDT"
-            and market.get("type") == "swap"
-        ):
-            binance_perps.add(market["id"])  # e.g. "BTCUSDT"
-
-    bybit_perps = set()
-    for symbol, market in bybit_markets.items():
-        if (
-            market.get("linear")
-            and market.get("active")
-            and market.get("settle") == "USDT"
-            and market.get("type") == "swap"
-        ):
-            bybit_perps.add(market["id"])  # e.g. "BTCUSDT"
-
-    common = sorted(binance_perps & bybit_perps)
-    logger.info(f"Found {len(binance_perps)} Binance, {len(bybit_perps)} Bybit, {len(common)} common pairs")
-
-    return common
+    symbols, _ = discover_pairs()
+    return symbols

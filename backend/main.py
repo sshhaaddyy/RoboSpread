@@ -6,10 +6,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from fastapi import WebSocket
 
-from config import HOST, PORT
-from exchange.pair_discovery import discover_common_pairs
+from config import HOST, PORT, EXCHANGES
+from exchange.pair_discovery import discover_pairs
 from exchange.binance_ws import BinanceWS
 from exchange.bybit_ws import BybitWS
+from exchange.hyperliquid_ws import HyperliquidWS
+from exchange.bitget_ws import BitgetWS
 from exchange.asset_status import run_coin_status_poller
 from engine.state import state
 from api.ws_handler import ws_endpoint, setup_ws_push
@@ -35,17 +37,21 @@ app.add_middleware(
 async def startup():
     logger.info("Starting RoboSpread...")
 
-    # Discover common pairs
-    common_pairs = discover_common_pairs()
-    state.init_pairs(common_pairs)
+    # Discover all perp pairs across registered exchanges
+    common_pairs, per_ex_map = discover_pairs()
+    state.init_pairs(per_ex_map)
+    for ex in EXCHANGES:
+        logger.info(f"  {ex}: {len(per_ex_map.get(ex, {}))} legs")
     logger.info(f"Initialized {len(common_pairs)} pairs. First 10: {common_pairs[:10]}")
 
-    # Start exchange WebSocket connections
-    binance_ws = BinanceWS(common_pairs)
-    bybit_ws = BybitWS(common_pairs)
-
-    asyncio.create_task(binance_ws.run_forever())
-    asyncio.create_task(bybit_ws.run_forever())
+    connectors = [
+        BinanceWS(per_ex_map.get("binance", {})),
+        BybitWS(per_ex_map.get("bybit", {})),
+        HyperliquidWS(per_ex_map.get("hyperliquid", {})),
+        BitgetWS(per_ex_map.get("bitget", {})),
+    ]
+    for c in connectors:
+        asyncio.create_task(c.run_forever())
     asyncio.create_task(run_coin_status_poller(state))
 
     logger.info("Exchange WebSocket tasks started.")
@@ -57,6 +63,26 @@ async def startup():
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "pairs": len(state.pairs)}
+
+
+@app.get("/api/exchanges")
+async def get_exchanges():
+    """Registry metadata (names, icons, colors, fees) for the frontend to render
+    leg badges without hardcoding exchange identities."""
+    return {
+        ex_id: {
+            "id": meta["id"],
+            "name": meta["name"],
+            "short_name": meta["short_name"],
+            "icon": meta.get("icon"),
+            "color": meta.get("color"),
+            "letter": meta.get("letter"),
+            "maker_fee": meta.get("maker_fee"),
+            "taker_fee": meta.get("taker_fee"),
+            "default_funding_interval_h": meta.get("default_funding_interval_h"),
+        }
+        for ex_id, meta in EXCHANGES.items()
+    }
 
 
 @app.get("/api/pairs")

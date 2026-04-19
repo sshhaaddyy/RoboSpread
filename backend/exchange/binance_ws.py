@@ -31,22 +31,21 @@ class BinanceWS(ExchangeWS):
                     data = msg.get("data", [])
 
                     for item in data:
-                        symbol = item.get("s", "")  # e.g. "BTCUSDT"
-                        if symbol not in self.symbols:
+                        native = item.get("s", "")  # e.g. "BTCUSDT"
+                        canonical = self.to_canonical(native)
+                        if not canonical:
                             continue
 
                         mark_price = float(item.get("p", 0))  # markPrice
                         funding_rate = float(item.get("r", 0))  # lastFundingRate
                         next_funding_time_ms = item.get("T")    # nextFundingTime (ms)
 
-                        # Binance markPrice stream doesn't include funding interval.
-                        # Default is 8h; we derive it from consecutive funding times if needed.
                         nft = int(next_funding_time_ms) / 1000 if next_funding_time_ms else None
 
                         if mark_price > 0:
                             state.update_leg(
                                 self.exchange_id,
-                                symbol,
+                                canonical,
                                 mark_price,
                                 funding_rate=funding_rate,
                                 next_funding_time=nft,

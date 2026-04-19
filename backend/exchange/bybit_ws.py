@@ -25,7 +25,7 @@ class BybitWS(ExchangeWS):
     exchange_id = "bybit"
 
     async def _subscribe(self, ws):
-        symbol_list = sorted(self.symbols)
+        symbol_list = sorted(self.native_symbols)
         for i in range(0, len(symbol_list), BYBIT_SUB_BATCH_SIZE):
             batch = symbol_list[i : i + BYBIT_SUB_BATCH_SIZE]
             args = [f"tickers.{s}" for s in batch]
@@ -67,9 +67,9 @@ class BybitWS(ExchangeWS):
                             continue
 
                         data = msg.get("data", {})
-                        symbol = data.get("symbol", "")
-
-                        if symbol not in self.symbols:
+                        native = data.get("symbol", "")
+                        canonical = self.to_canonical(native)
+                        if not canonical:
                             continue
 
                         mark_price = data.get("markPrice")
@@ -82,7 +82,7 @@ class BybitWS(ExchangeWS):
                             fih = int(funding_interval_min) / 60 if funding_interval_min else 8
                             state.update_leg(
                                 self.exchange_id,
-                                symbol,
+                                canonical,
                                 float(mark_price),
                                 funding_rate=float(funding_rate) if funding_rate else None,
                                 next_funding_time=nft,

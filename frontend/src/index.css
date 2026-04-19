@@ -470,6 +470,50 @@ body {
   letter-spacing: 0.03em;
 }
 
+/* ─── Legs strip (all exchange legs for this pair) ─── */
+.legs-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.legs-strip-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.legs-strip-chip.stale {
+  opacity: 0.45;
+}
+
+.legs-strip-chip .exchange-icon,
+.legs-strip-chip .exchange-icon-badge {
+  width: 16px;
+  height: 16px;
+  font-size: 9px;
+}
+
+.legs-strip-name {
+  font-weight: 600;
+  color: var(--text-secondary, #9ca3af);
+}
+
+.legs-strip-price {
+  color: var(--text-primary, #fff);
+}
+
+.legs-strip-funding {
+  color: var(--text-secondary, #9ca3af);
+}
+
 /* ─── Detail Columns (In/Out + Exchange grouped) ─── */
 .detail-columns {
   display: grid;
