@@ -40,6 +40,19 @@ description: <one-line description of when this skill applies>
   for brainstorming with diversity, uncertainty calibration, or
   validation by majority — NOT for decomposable research (that's
   `/research`). Invoke as `/consensus <question>` (optional `n=N`).
+- `model-chat/` — 5-agent debate room. Spawns fixed role-stake
+  personas (Skeptic · Domain expert · User advocate · Pragmatist ·
+  Synthesizer) that debate a topic over up to 5 rounds using
+  **broadcast-revise** (all agents see the frozen prior-round
+  transcript and generate in parallel within the round — NOT
+  sequential handoff). Hard-capped rounds + conclusion-token
+  stability early-stop (K=2). Anti-sycophancy guards:
+  original-position pinning + anti-capitulation prompt + asymmetric
+  priors. Synthesizer is a **peer** not a judge. Use for design
+  decisions with real tradeoffs, risk assessment / pre-mortems,
+  surfacing disagreement. Architecture from the
+  `research/2026-04-19-model-chat-design.md` brief. Invoke as
+  `/model-chat <topic>` (optional `rounds=N`).
 
 ## Authoring new skills
 
