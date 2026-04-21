@@ -2,6 +2,9 @@
 # Exchange registry — single source of truth for fees, WS URLs,
 # funding intervals, and display metadata. New exchanges register here.
 # ─────────────────────────────────────────────────────────────────
+# Every exchange entry MUST carry a non-empty `fee_source_url` citing the
+# public page the maker_fee/taker_fee were copied from. Enforced at import
+# time by ExchangeWS.__init_subclass__ — see backend/exchange/base.py.
 EXCHANGES: dict[str, dict] = {
     "binance": {
         "id": "binance",
@@ -12,6 +15,7 @@ EXCHANGES: dict[str, dict] = {
         "letter": "B",
         "maker_fee": 0.02,
         "taker_fee": 0.04,
+        "fee_source_url": "https://www.binance.com/en/fee/futureFee",
         "default_funding_interval_h": 8.0,
         "ws_url": "wss://fstream.binance.com/stream?streams=!markPrice@arr@1s",
     },
@@ -24,6 +28,7 @@ EXCHANGES: dict[str, dict] = {
         "letter": "By",
         "maker_fee": 0.01,
         "taker_fee": 0.055,
+        "fee_source_url": "https://www.bybit.com/en/help-center/article/Trading-Fee-Structure",
         "default_funding_interval_h": 8.0,
         "ws_url": "wss://stream.bybit.com/v5/public/linear",
     },
@@ -36,6 +41,7 @@ EXCHANGES: dict[str, dict] = {
         "letter": "H",
         "maker_fee": 0.01,
         "taker_fee": 0.035,
+        "fee_source_url": "https://hyperliquid.gitbook.io/hyperliquid-docs/trading/fees",
         "default_funding_interval_h": 1.0,
         "ws_url": "wss://api.hyperliquid.xyz/ws",
         "info_url": "https://api.hyperliquid.xyz/info",
@@ -49,6 +55,7 @@ EXCHANGES: dict[str, dict] = {
         "letter": "Bg",
         "maker_fee": 0.02,
         "taker_fee": 0.06,
+        "fee_source_url": "https://www.bitget.com/contract-fee",
         "default_funding_interval_h": 8.0,
         "ws_url": "wss://ws.bitget.com/v2/ws/public",
     },
@@ -61,6 +68,7 @@ EXCHANGES: dict[str, dict] = {
         "letter": "G",
         "maker_fee": 0.02,
         "taker_fee": 0.05,
+        "fee_source_url": "https://www.gate.io/fee",
         "default_funding_interval_h": 8.0,
         "ws_url": "wss://fx-ws.gateio.ws/v4/ws/usdt",
     },
@@ -73,6 +81,7 @@ EXCHANGES: dict[str, dict] = {
         "letter": "M",
         "maker_fee": 0.00,
         "taker_fee": 0.02,
+        "fee_source_url": "https://www.mexc.com/fee",
         "default_funding_interval_h": 8.0,
         "ws_url": "wss://contract.mexc.com/edge",
     },
@@ -85,8 +94,35 @@ EXCHANGES: dict[str, dict] = {
         "letter": "A",
         "maker_fee": 0.01,
         "taker_fee": 0.035,
+        "fee_source_url": "https://docs.asterdex.com",
         "default_funding_interval_h": 8.0,
         "ws_url": "wss://fstream.asterdex.com/stream?streams=!markPrice@arr@1s",
+    },
+    "okx": {
+        "id": "okx",
+        "name": "OKX Futures",
+        "short_name": "OKX",
+        "icon": "https://assets.coingecko.com/markets/images/96/small/WeChat_Image_20220117220452.png",
+        "color": "#3186ff",
+        "letter": "O",
+        "maker_fee": 0.02,
+        "taker_fee": 0.05,
+        "fee_source_url": "https://www.okx.com/fees-trading",
+        "default_funding_interval_h": 8.0,
+        "ws_url": "wss://ws.okx.com:8443/ws/v5/public",
+    },
+    "kucoin": {
+        "id": "kucoin",
+        "name": "KuCoin Futures",
+        "short_name": "KuCoin",
+        "icon": "https://assets.coingecko.com/markets/images/61/small/kucoin.png",
+        "color": "#01bc8d",
+        "letter": "K",
+        "maker_fee": 0.02,
+        "taker_fee": 0.06,
+        "fee_source_url": "https://www.kucoin.com/vip/privilege",
+        "default_funding_interval_h": 4.0,  # most common on KuCoin; per-symbol cached
+        "ws_url": "",  # dynamic — resolved via POST /bullet-public at connect time
     },
 }
 

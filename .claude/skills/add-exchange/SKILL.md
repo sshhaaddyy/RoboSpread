@@ -1,150 +1,193 @@
 ---
 name: add-exchange
-description: Wire a new exchange connector into RoboSpread (REST discovery → WS connector → config → pair_discovery → history → CHANGELOG). Use when the user asks to "add <exchange>" or "integrate <venue>".
+description: Scaffold a new exchange connector into RoboSpread. Use when the user asks to "add <exchange>" or "integrate <venue>". Scaffold ONLY — run /verify-exchange afterward to confirm it works.
 ---
 
 # Adding an exchange to RoboSpread
 
-Distilled from wiring Hyperliquid, Bitget, Gate, MEXC, and Aster. Skip steps
-you've verified are irrelevant for the target venue — but touch every file
-listed under "wire-up checklist" or the exchange won't appear at startup.
+Distilled from Phase 3 (Hyperliquid) through Phase 13 (OKX) and the
+2026-04-21 /model-chat redesign. This skill scaffolds the connector.
+**Verification is a separate skill** — run `/verify-exchange <id>` after
+wiring to catch the silent footguns.
 
-## Step 0 — investigate before writing code
+The concrete connector template lives at `backend/exchange/_template_ws.py`
+(not a skill prompt — the pragmatist's argument from the debate:
+codebase-resident files drift with the code).
 
-Probe the venue's API **before** writing any files. Every mistake so far
-came from trusting docs instead of the wire:
+## Step 0 — probe before writing code
 
-- `curl` the contract/exchangeInfo endpoint. Confirm native symbol format,
-  quote asset filter, active/trading status field, and whether funding
-  interval lives on the contract metadata or requires a second call.
-- Open the WS with a throwaway Python probe (see `backend/exchange/aster_ws.py`
-  probe snippet in commit history). Log 2-3 messages and inspect which fields
-  are on the tick vs. missing.
-- Specifically check: does the ticker carry `funding_rate` + `funding_interval`
-  + `next_funding_time`? If any are absent, plan a REST discovery cache
-  (Bitget pattern) or a REST poller (MEXC pattern) or an algorithmic advance
-  (Gate's `current_next_funding` pattern).
+Every integration failure so far came from trusting docs instead of the wire:
 
-## Step 1 — choose a connector archetype
+- `curl` the contract/exchangeInfo endpoint. Confirm: native symbol shape,
+  quote asset filter, active/trading status field name, whether funding
+  interval is on contract metadata or requires a second call.
+- **Check for User-Agent blocking.** OKX (and some Cloudflare-fronted
+  venues) 403 on Python's default `Python-urllib/3.x`. If the curl works
+  but `urllib.request.urlopen` 403s, set
+  `headers={"User-Agent": "Mozilla/5.0 RoboSpread/1.0"}`.
+- Open the WS with a throwaway probe; log 2-3 messages. Inspect which
+  fields are on the tick vs. missing. Specifically check: does the ticker
+  carry `funding_rate` + `funding_interval` + `next_funding_time`? Any
+  absence changes the archetype.
+- **Check geoblocks.** If the exchange geoblocks your region (Kraken
+  Futures, Deribit mark channel for US), discovery may 451/403 even with
+  a UA. Flag before coding — might need to drop the venue rather than
+  fight it.
 
-Three patterns exist; pick the closest fit:
+## Step 1 — choose an archetype (4 patterns)
 
-1. **Bulk stream, Binance-style** (Binance, Aster): one WS subscription pushes
-   all symbols every 1s in `{stream, data:[...]}` envelope. Inherit
-   `ExchangeWS`, not `CexWSBase`. Reference: `backend/exchange/aster_ws.py`.
+Pick the closest fit. Reference implementation listed for each:
 
-2. **Per-symbol op/args CEX** (Bitget, Gate): subscribe with
-   `{"op":"subscribe","args":[...]}` or a payload-array equivalent, one
-   arg per symbol, batched. Inherit `CexWSBase` — it handles reconnect,
-   batching, app-level ping, control-frame filtering. Override hooks:
-   `_subscribe_arg(native)`, `_build_subscribe_message(batch)` (only if
-   the envelope differs from op/args), `_is_control_message(msg)`,
-   `_handle_message(msg)`. Reference: `backend/exchange/gate_ws.py`.
+1. **Bulk stream, Binance-style** — one WS subscription pushes all symbols
+   every ~1s in `{stream, data:[...]}`. Inherit `ExchangeWS` directly.
+   Ref: `backend/exchange/aster_ws.py`. Used by: Binance, Aster.
 
-3. **Bulk stream + REST funding poll** (MEXC, Hyperliquid): WS pushes mark
-   prices in a single bulk channel; funding rate / interval / next-settle
-   come from a 30s REST poll. Two asyncio background tasks inside
-   `connect()`. **Route funding updates through `state.update_leg()` with
-   the last-known mark price** so `best_arb` / `best_funding` recompute
-   on each poll — don't write leg attributes directly. Reference:
-   `backend/exchange/mexc_ws.py`.
+2. **Per-symbol op/args CEX** — `{"op":"subscribe","args":[...]}`, one
+   arg per symbol, batched. Inherit `CexWSBase`. Override
+   `_subscribe_arg(native)`, `_handle_message(msg)`, optionally
+   `_is_control_message(msg)`. Ref: `backend/exchange/gate_ws.py`.
+   Used by: Bitget, Gate.
 
-## Step 2 — discovery module (`<exchange>_discovery.py`)
+3. **Bulk stream + REST funding poll** — WS pushes marks; funding
+   rate/interval/next-settle come from a 30s REST poller. Two asyncio
+   tasks in `connect()`. **Route funding updates through
+   `state.update_leg(...)` with the last-known mark price**, never write
+   leg attributes directly. Ref: `backend/exchange/mexc_ws.py`. Used by:
+   MEXC, Hyperliquid.
 
-- Fetch via `urllib.request` (sync, no aiohttp — discovery runs once at
-  startup). Timeout 15s. Log and return `{}` on failure; never raise.
+4. **Dual-channel WS + runtime-derived interval** (NEW — OKX).
+   Two channels per symbol (mark-price + funding-rate). Override
+   `_build_subscribe_message(batch)` to emit 2N args per batch.
+   Funding interval is **not** on REST — derive from
+   `(fundingTime − prevFundingTime) / 3_600_000` on each funding-rate
+   push. Cache `_fr_cache`, `_nft_cache`, `_interval_cache` at module
+   level keyed by canonical symbol. Ref: `backend/exchange/okx_ws.py`.
+   Used by: OKX.
+
+## Step 2 — clone the template
+
+```bash
+cp backend/exchange/_template_ws.py backend/exchange/<id>_ws.py
+```
+
+The template is a commented reference with stubs for archetypes 2, 3,
+and 4. Delete the archetypes you don't need. For archetype 1 (bulk
+stream) clone from `aster_ws.py` instead — Binance-style envelopes are
+simpler than the CEX base.
+
+## Step 3 — discovery module (`<id>_discovery.py`)
+
+- Fetch via `urllib.request` (sync — discovery runs once at startup).
+  Timeout 15s. On failure log and return `{}` — never raise.
+- **Always set a browser User-Agent.** OKX 403s without one.
 - Filter to **USDT-margined**, **trading/active**, **non-delisted** perps.
-  Exclude hidden/pre-market/settling listings.
+  Exclude hidden, pre-market, settling. For venues with multiple
+  settlement currencies (Hyperliquid USDC/USDH/USDE/USDT0, OKX USDC),
+  pick ONE and document the choice.
 - Return `dict[canonical: native]`. Canonical is Binance-style `BTCUSDT`.
-  If the venue uses `BTC_USDT` or `kPEPE`, transform here — never scatter
+  Transform `BTC_USDT`, `kPEPE`, `BTC-USDT-SWAP` here — never scatter
   symbol rewrites across the codebase.
-- **If the ticker stream omits funding interval** (Bitget, Gate, Aster):
-  fetch it in discovery and expose a module-level `_interval_cache` plus
-  setter/getter. The WS connector will read from this cache per tick.
-- **If next-funding-time isn't on the stream** (Gate): seed a
-  `_next_apply_cache` at discovery and add a `current_next_funding(canonical)`
-  helper that advances forward by `interval_h` whenever `now >= seed`.
-
-## Step 3 — WS connector module (`<exchange>_ws.py`)
-
-- Set `exchange_id` to match the `EXCHANGES` key. Never use free strings.
-- Canonicalize with `self.to_canonical(native)` — base class handles the
-  {canonical:native} dict that `pair_discovery` produces.
-- Always guard `if mark_price <= 0: continue` before calling `update_leg`.
-  Stale/zero prices corrupt `best_arb` routes.
-- Pass `funding_rate`, `funding_interval_h`, `next_funding_time` to
-  `state.update_leg(...)` on every tick where you have them. `state`
-  recomputes `best_arb` + `best_funding` and appends history.
-- **Funding rate semantics**: we publish the *predicted next-settlement*
-  rate across all venues. If the venue also ships a "last paid" field
-  (Gate's `funding_rate` vs `funding_rate_indicative`), always prefer the
-  predicted/indicative variant with fallback to the settled field.
+- If the ticker stream omits funding interval (Bitget, Gate, Aster):
+  fetch it here and expose a module-level `_interval_cache` +
+  setter/getter. The WS connector reads from this cache per tick.
+- If next-funding-time isn't on the stream (Gate): seed a
+  `_next_apply_cache` and add `current_next_funding(canonical)` that
+  advances by `interval_h` whenever `now >= seed`.
 
 ## Step 4 — wire-up checklist
 
-Every file below must be touched. Missing any one silently hides the venue:
+Every file must be touched. Missing any one silently hides the venue:
 
-1. `backend/config.py` → add `EXCHANGES["<id>"]` entry. Required keys:
+1. **`backend/config.py`** — add `EXCHANGES["<id>"]` entry. Required keys:
    `id, name, short_name, icon, color, letter, maker_fee, taker_fee,
-   default_funding_interval_h, ws_url`. Fees are **percent** (0.04 = 0.04%).
-2. `backend/exchange/pair_discovery.py` → import discovery fn, add to
-   `_DISCOVERY_FUNCS`. If discovery has side-effect caches (intervals,
-   next-applies), wrap it: `def _discover_X_wrapped(): natives, intervals = discover_X(); _X_set_intervals(intervals); return natives`.
-3. `backend/main.py` → import the WS class, append to the `connectors` list
-   in `startup()`.
-4. `backend/exchange/history.py` → add a ccxt client branch in `_get_client`
-   **or** a native kline fetcher if ccxt doesn't ship an adapter
-   (`_fetch_aster_klines` is the template). Add the exchange id to the
-   `_ccxt_symbol` translation tuple and the mark-price params tuple if it
-   supports a mark-price OHLCV param.
+   fee_source_url, default_funding_interval_h, ws_url`.
+   - Fees are **percent** (0.04 = 0.04%).
+   - `fee_source_url` is **enforced at import time** by
+     `ExchangeWS.__init_subclass__` — backend refuses to start without it.
+     The URL must be the public fee page you copied the numbers from.
+     Do NOT invent fee values from memory.
+   - `icon`: prefer `https://assets.coingecko.com/markets/images/<id>/small/...`
+     (look up the venue on coingecko.com/en/exchanges; the image URL is
+     on the page). If no coingecko listing, skip the icon rather than
+     guess — the frontend falls back to the `letter` badge.
+2. **`backend/exchange/pair_discovery.py`** — import discovery fn, add to
+   `_DISCOVERY_FUNCS`. If discovery has side-effect caches, wrap it:
+   ```python
+   def _discover_X_wrapped():
+       natives, intervals = discover_X()
+       _X_set_intervals(intervals)
+       return natives
+   ```
+3. **`backend/main.py`** — import the WS class, append one line to the
+   `connectors` list in `startup()`.
+4. **`backend/exchange/history.py`** — THREE edits in this one file:
+   - `_get_client`: add ccxt branch (or a native kline fetcher like
+     `_fetch_aster_klines` if ccxt has no adapter).
+   - `_ccxt_symbol`: add the exchange id to the tuple for the
+     `"BTC/USDT:USDT"` format (most CEXes) or add a custom branch.
+   - `_fetch_ohlcv`: add to the mark-price-params tuple if the venue
+     supports `params={"price": "mark"}` on OHLCV. If not, it silently
+     returns last-price klines — document it.
 
-## Step 5 — verify end-to-end
+## Step 5 — verify (separate skill)
 
-Before committing, boot the backend and confirm **on the wire**, not just
-in logs:
+Run `/verify-exchange <id>` or directly:
 
 ```bash
-# in a second shell, after the backend shows "Application startup complete":
-curl -s http://localhost:8000/api/exchanges | python3 -c "import json,sys; print(list(json.load(sys.stdin).keys()))"
-curl -s http://localhost:8000/api/pairs | python3 -c "
-import json,sys
-pairs=json.load(sys.stdin)
-btc=next((p for p in pairs if p['symbol']=='BTCUSDT'),None)
-for ex,leg in btc['legs'].items():
-    print(f'{ex}: mark={leg[\"mark_price\"]} fr={leg[\"funding_rate\"]} fih={leg[\"funding_interval_h\"]} nft={leg[\"next_funding_time\"]}')
-"
+cd backend && ./venv/bin/python -m scripts.verify_exchange <id> --seconds 60
 ```
 
-All four fields (`mark_price`, `funding_rate`, `funding_interval_h`,
-`next_funding_time`) must be non-zero/non-null on BTCUSDT within ~30s of
-boot (allow for REST-poll venues to fire their first cycle). If
-`funding_interval_h` is defaulted to 8.0 for every symbol, your discovery
-interval cache isn't wired — go back to step 2.
+This boots just your connector, streams 60s, and asserts all four leg
+fields (`mark_price`, `funding_rate`, `funding_interval_h`,
+`next_funding_time`) are populated on BTCUSDT. It also flags the #1
+footgun: every symbol stuck on the default 8h interval (= your
+discovery cache isn't wired).
 
-Also verify a non-8h symbol picks up its real interval (Aster's
-`0GUSDT=1h`, `1000BONKUSDT=4h`, Bitget's `XTZUSDT=4h`). Silent fall-through
-to the default funding interval is the #1 footgun.
+Do NOT commit until verify passes.
 
-## Step 6 — CHANGELOG + commit
+## Step 6 — changelog + commit
 
-- Append a Phase entry to `CHANGELOG.md` with: discovery URL, WS URL,
-  subscribe shape, field list, fees tier, count of perps + legs, and any
-  non-obvious quirk found in step 0.
+- **Filename is `changelog.md` (lowercase).** There is no `CHANGELOG.md`
+  — check with `ls` before appending, not before sure. Phase numbering:
+  `grep -c "^## Phase" changelog.md` for the next N, or read the last
+  `## Phase` header.
+- Phase entry must include: discovery URL, WS URL, subscribe shape,
+  tick field list, fees tier (with source URL), count of perps + legs,
+  any non-obvious quirk from step 0.
 - Commit message: `Phase <N>: <Exchange> connector` + 2-3 line body.
-- The user's memory says every `git push` must append an entry to
-  changelog.md — that's the same `CHANGELOG.md` file, handled as part of
-  the phase entry. No separate push log.
 
 ## Pitfalls seen so far
 
-- **Port 8000 in use after a crash**: `lsof -ti :8000 | xargs kill -9`.
-- **Empty log tail**: use `python -u` for unbuffered output and read the
-  log file with the Read tool; don't trust background bash tails.
-- **Assumed fields from docs that weren't on the wire**: Gate's ticker
-  does NOT include `funding_next_apply` despite docs implying it does.
-  MEXC's `contract/detail` does NOT include `fundingInterval` — it's on
-  `funding_rate` instead. Probe before coding.
-- **Per-symbol subscribe for 800+ MEXC symbols**: don't. MEXC's
-  `sub.tickers` (plural, no arg) bulk channel is the right answer.
+- **OKX / Cloudflare 403 on Python UA**: set
+  `User-Agent: Mozilla/5.0 RoboSpread/1.0` on every `urllib.request`.
+- **Multi-channel per symbol**: OKX needs 2 args per symbol (mark +
+  funding). Override `_build_subscribe_message(batch)`, not
+  `_subscribe_arg`. Halve `sub_batch_size` since args-per-batch doubles.
+- **Fees from memory**: invented OKX 0.05/0.02 in Phase 13 with no
+  source URL. The `fee_source_url` gate now blocks this at import.
+- **Symbol-space quirks**:
+  - USDC-settled perps (Hyperliquid, some OKX): skip or treat as a
+    separate venue — we track USDT-margined only.
+  - Dated contracts (Binance quarterlies, BitMEX XBTM25): skip in
+    discovery filter.
+  - Inverse perps (`BTCUSD_PERP`): skip — we compute USDT-linear edges.
+  - `1000XXX` (Binance/Bybit) vs `kXXX` (Hyperliquid) for 1000×
+    wrappers — normalize in discovery, not in the connector.
+- **Port 8000 in use**: `lsof -ti :8000 | xargs kill -9`.
+- **Empty log tail**: use `python -u`; read the log file with the Read
+  tool, not a background tail.
 - **Writing to `leg.funding_rate` directly** from a REST poller skips
   route recomputation. Always go through `state.update_leg(...)`.
+- **Per-symbol subscribe for 800+ MEXC symbols**: don't. Use MEXC's
+  `sub.tickers` (plural, no arg) bulk channel.
+- **Assumed fields that aren't on the wire**: Gate's ticker does NOT
+  include `funding_next_apply`. MEXC's `contract/detail` does NOT
+  include `fundingInterval`. Probe before coding.
+
+## Known-unresolved (from the 2026-04-21 model-chat)
+
+- **Geoblocked-venue fallback**: no concrete mechanism. If the exchange
+  geoblocks your IP, abandon the integration for now.
+- **Fee URL content verification**: the `__init_subclass__` gate checks
+  for a URL, not that the URL still shows the declared rates. Manual
+  periodic review only.

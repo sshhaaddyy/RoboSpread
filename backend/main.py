@@ -15,6 +15,8 @@ from exchange.bitget_ws import BitgetWS
 from exchange.gate_ws import GateWS
 from exchange.mexc_ws import MexcWS
 from exchange.aster_ws import AsterWS
+from exchange.okx_ws import OkxWS
+from exchange.kucoin_ws import KucoinWS
 from exchange.asset_status import run_coin_status_poller
 from engine.state import state
 from api.ws_handler import ws_endpoint, setup_ws_push
@@ -55,6 +57,8 @@ async def startup():
         GateWS(per_ex_map.get("gate", {})),
         MexcWS(per_ex_map.get("mexc", {})),
         AsterWS(per_ex_map.get("aster", {})),
+        OkxWS(per_ex_map.get("okx", {})),
+        KucoinWS(per_ex_map.get("kucoin", {})),
     ]
     for c in connectors:
         asyncio.create_task(c.run_forever())

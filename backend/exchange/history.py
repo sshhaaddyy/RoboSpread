@@ -27,6 +27,10 @@ def _get_client(exchange_id: str):
         _clients[exchange_id] = ccxt.gate({"options": {"defaultType": "swap"}})
     elif exchange_id == "mexc":
         _clients[exchange_id] = ccxt.mexc({"options": {"defaultType": "swap"}})
+    elif exchange_id == "okx":
+        _clients[exchange_id] = ccxt.okx({"options": {"defaultType": "swap"}})
+    elif exchange_id == "kucoin":
+        _clients[exchange_id] = ccxt.kucoinfutures()
     else:
         raise ValueError(f"No ccxt client configured for {exchange_id}")
     return _clients[exchange_id]
@@ -35,7 +39,11 @@ def _get_client(exchange_id: str):
 def _ccxt_symbol(exchange_id: str, canonical: str) -> str | None:
     """Translate our canonical Binance-style id (BTCUSDT, 1000PEPEUSDT) into the
     ccxt symbol string the target exchange expects."""
-    if exchange_id in ("binance", "bybit", "bitget", "gate", "mexc"):
+    if exchange_id in ("binance", "bybit", "bitget", "gate", "mexc", "okx"):
+        return canonical.replace("USDT", "/USDT:USDT")
+    if exchange_id == "kucoin":
+        # KuCoin uses XBT for BTC; ccxt kucoinfutures exposes "BTC/USDT:USDT".
+        # Our canonical is already "BTCUSDT", so same pattern.
         return canonical.replace("USDT", "/USDT:USDT")
     if exchange_id == "hyperliquid":
         pair = state.pairs.get(canonical)
@@ -82,7 +90,7 @@ def _fetch_ohlcv(exchange_id: str, canonical_symbol: str, timeframe: str, limit:
     symbol = _ccxt_symbol(exchange_id, canonical_symbol)
     if not symbol:
         return []
-    params = {"price": "mark"} if exchange_id in ("binance", "bybit", "bitget", "gate") else {}
+    params = {"price": "mark"} if exchange_id in ("binance", "bybit", "bitget", "gate", "okx", "kucoin") else {}
     return client.fetch_ohlcv(
         symbol,
         timeframe=timeframe,

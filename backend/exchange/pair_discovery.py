@@ -1,7 +1,9 @@
 import json
 import logging
+import time
 import urllib.request
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 
 import ccxt
 
@@ -10,6 +12,8 @@ from exchange.bitget_discovery import discover_bitget, _set_interval_cache as _b
 from exchange.gate_discovery import discover_gate, _set_caches as _gate_set_caches
 from exchange.mexc_discovery import discover_mexc
 from exchange.aster_discovery import discover_aster, _set_interval_cache as _aster_set_intervals
+from exchange.okx_discovery import discover_okx
+from exchange.kucoin_discovery import discover_kucoin, _set_caches as _kucoin_set_caches
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +112,12 @@ def _discover_aster_wrapped() -> dict[str, str]:
     return natives
 
 
+def _discover_kucoin_wrapped() -> dict[str, str]:
+    natives, intervals, next_applies = discover_kucoin()
+    _kucoin_set_caches(intervals, next_applies)
+    return natives
+
+
 _DISCOVERY_FUNCS = {
     "binance": _discover_binance,
     "bybit": _discover_bybit,
@@ -116,6 +126,8 @@ _DISCOVERY_FUNCS = {
     "gate": _discover_gate_wrapped,
     "mexc": discover_mexc,
     "aster": _discover_aster_wrapped,
+    "okx": discover_okx,
+    "kucoin": _discover_kucoin_wrapped,
 }
 
 
@@ -125,20 +137,26 @@ def discover_pairs() -> tuple[list[str], dict[str, dict[str, str]]]:
     A symbol is included if it is listed on at least MIN_EXCHANGES_PER_PAIR venues.
     per_exchange_native_map[exchange_id][canonical] = native_symbol.
     """
-    logger.info("Discovering perp universes across %d exchanges...", len(EXCHANGES))
+    logger.info("Discovering perp universes across %d exchanges (parallel)...", len(EXCHANGES))
+    t0 = time.time()
 
-    exchange_maps: dict[str, dict[str, str]] = {}
-    for ex_id in EXCHANGES:
+    def _run_one(ex_id: str) -> tuple[str, dict[str, str]]:
         fn = _DISCOVERY_FUNCS.get(ex_id)
         if not fn:
             logger.warning("No discovery function for %s, skipping", ex_id)
-            continue
+            return ex_id, {}
         try:
-            exchange_maps[ex_id] = fn()
-            logger.info("  %s: %d perps", ex_id, len(exchange_maps[ex_id]))
+            return ex_id, fn()
         except Exception as e:
             logger.error("  %s discovery failed: %s", ex_id, e)
-            exchange_maps[ex_id] = {}
+            return ex_id, {}
+
+    exchange_maps: dict[str, dict[str, str]] = {}
+    with ThreadPoolExecutor(max_workers=len(EXCHANGES) or 1) as pool:
+        for ex_id, natives in pool.map(_run_one, list(EXCHANGES.keys())):
+            exchange_maps[ex_id] = natives
+            logger.info("  %s: %d perps", ex_id, len(natives))
+    logger.info("Discovery complete in %.1fs", time.time() - t0)
 
     counter: Counter = Counter()
     for m in exchange_maps.values():
