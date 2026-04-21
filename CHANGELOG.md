@@ -1,5 +1,14 @@
 # RoboSpread Changelog
 
+## 2026-04-21 — Ancillary docs: strategy + market research
+
+- `OVERVIEW.md`: strategic "why" / "where to" doc. Positions RoboSpread as the self-hosted alternative to ArbitrageScanner.io with $5k MRR target via execution layer. Points at the two supporting artifacts below.
+- `model-chat/2026-04-21-robospread-5k-mrr-strategy.md`: 5-agent debate output on the monetization path.
+- `research/2026-04-21-arbitrage-scanner-market-research.md`: competitive landscape of scanners (pricing, feature gaps).
+- `research/2026-04-21-competitor-transport-and-venue-audit.md`: what venues + transport (WS/REST) each competitor uses.
+- `research/2026-04-20-best-chrome-browser-mcp.md`: scouting brief for a browser-automation MCP (unrelated to exchange work, pushed together for tidiness).
+- Note: `autoresearch/` is a separate nested git repo and is intentionally NOT included in this commit.
+
 ## 2026-04-21 — Phase 14: KuCoin connector (9 exchanges live)
 
 - `backend/exchange/kucoin_discovery.py`: native REST `GET https://api-futures.kucoin.com/api/v1/contracts/active`. Filters `quoteCurrency=USDT`, `settleCurrency=USDT`, `status=Open`, `type=FFWCSX` (linear perp), skip `isInverse`. Seeds both `_interval_cache` (from `fundingRateGranularity` ms) and `_next_apply_cache` (from `nextFundingRateDateTime` ms). **Canonical quirk**: KuCoin uses BitMEX-legacy `XBT` for BTC (`XBTUSDTM → BTCUSDT`); everything else is `<BASE>USDTM → <BASE>USDT` (1000-prefix preserved). 561 perps discovered. Same `Mozilla/5.0 RoboSpread/1.0` UA as OKX (not strictly required here, kept for consistency).

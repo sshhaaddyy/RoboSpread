@@ -1,4 +1,4 @@
-# /model-chat skill design — fan-out/fan-in research brief
+#  /model-chat skill design — fan-out/fan-in research brief
 
 **Question:** How should I design a /model-chat skill that spawns 5+
 Claude instances into a shared conversation room with round-robin
