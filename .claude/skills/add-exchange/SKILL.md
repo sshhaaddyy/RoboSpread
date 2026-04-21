@@ -34,7 +34,7 @@ Every integration failure so far came from trusting docs instead of the wire:
   a UA. Flag before coding — might need to drop the venue rather than
   fight it.
 
-## Step 1 — choose an archetype (4 patterns)
+## Step 1 — choose an archetype (5 patterns)
 
 Pick the closest fit. Reference implementation listed for each:
 
@@ -55,7 +55,7 @@ Pick the closest fit. Reference implementation listed for each:
    leg attributes directly. Ref: `backend/exchange/mexc_ws.py`. Used by:
    MEXC, Hyperliquid.
 
-4. **Dual-channel WS + runtime-derived interval** (NEW — OKX).
+4. **Dual-channel WS + runtime-derived interval** (OKX).
    Two channels per symbol (mark-price + funding-rate). Override
    `_build_subscribe_message(batch)` to emit 2N args per batch.
    Funding interval is **not** on REST — derive from
@@ -63,6 +63,16 @@ Pick the closest fit. Reference implementation listed for each:
    push. Cache `_fr_cache`, `_nft_cache`, `_interval_cache` at module
    level keyed by canonical symbol. Ref: `backend/exchange/okx_ws.py`.
    Used by: OKX.
+
+5. **Pure REST poll on bulk endpoint** (NEW — BingX, WhiteBIT). The
+   venue exposes ONE endpoint that returns every perp with mark /
+   funding rate / funding interval / next-funding-time per row. No WS,
+   no sharding, no per-symbol subs. `connect()` = `while True: fetch →
+   parse → sleep 3s`. Inherit `ExchangeWS`. Pick this when
+   per-symbol WS would require KuCoin-style sharding but REST gives
+   you everything under the rate cap. Typical rate-limit math: ~0.33
+   req/s easily fits under 100 req/10s public-IP limits.
+   Ref: `backend/exchange/bingx_ws.py`. Used by: BingX, WhiteBIT.
 
 ## Step 2 — clone the template
 

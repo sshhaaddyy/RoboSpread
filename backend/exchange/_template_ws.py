@@ -5,7 +5,7 @@ Copy this to `<exchange_id>_ws.py` and delete the archetypes you don't need.
 Agreed via /model-chat 2026-04-21: the template lives in the codebase (not
 in a skill prompt) so it drifts naturally as the connector pattern evolves.
 
-4 archetypes seen in the wild — pick the closest fit:
+5 archetypes seen in the wild — pick the closest fit:
 
     Archetype 1: BULK STREAM (Binance, Aster)
         One WS subscription pushes all symbols every ~1s in a
@@ -32,6 +32,16 @@ in a skill prompt) so it drifts naturally as the connector pattern evolves.
         Funding interval NOT published by REST; derive from WS payload
         (fundingTime − prevFundingTime) / 3_600_000 and cache per symbol.
         Reference: backend/exchange/okx_ws.py
+
+    Archetype 5: PURE REST POLL ON BULK ENDPOINT (BingX, WhiteBIT)
+        The venue exposes one REST endpoint that returns EVERY perp in
+        one call with mark + funding rate + funding interval +
+        next-funding-time per row. No WS involved. `connect()` is a
+        `while True: fetch → parse → sleep` loop. Inherit ExchangeWS;
+        the base's run_forever() still handles reconnect on fatal errors.
+        Pick this when WS would require per-symbol sub sharding (KuCoin-
+        style) but REST gives you everything in one call under rate limits.
+        Reference: backend/exchange/bingx_ws.py
 
 Common rules for every archetype:
     • Set `exchange_id` to match the EXCHANGES registry key.

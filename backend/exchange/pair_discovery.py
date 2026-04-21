@@ -14,6 +14,8 @@ from exchange.mexc_discovery import discover_mexc
 from exchange.aster_discovery import discover_aster, _set_interval_cache as _aster_set_intervals
 from exchange.okx_discovery import discover_okx
 from exchange.kucoin_discovery import discover_kucoin, _set_caches as _kucoin_set_caches
+from exchange.bingx_discovery import discover_bingx
+from exchange.whitebit_discovery import discover_whitebit
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +130,8 @@ _DISCOVERY_FUNCS = {
     "aster": _discover_aster_wrapped,
     "okx": discover_okx,
     "kucoin": _discover_kucoin_wrapped,
+    "bingx": discover_bingx,
+    "whitebit": discover_whitebit,
 }
 
 

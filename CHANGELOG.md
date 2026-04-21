@@ -1,5 +1,17 @@
 # RoboSpread Changelog
 
+## 2026-04-21 — Phase 15 + 16: BingX + WhiteBIT connectors (11 exchanges live)
+
+Both venues landed on a **new Archetype 5 — pure REST poll on bulk endpoint** — neither exchange publishes a WS channel that bulk-pushes all perps, but both expose a single unauthenticated REST endpoint that returns every perp's mark, funding rate, funding interval, and next-funding-time in one call. One HTTP request per 3s beats sharded per-symbol WS subscribes on every axis (latency noise, rate limits, connection count) when the venue gives you this shape.
+
+- `backend/exchange/bingx_discovery.py` + `bingx_ws.py`: discovery via `GET https://open-api.bingx.com/openApi/swap/v2/quote/contracts` (filter `currency=USDT`, `status=1`, extract `asset` → canonical `{asset}USDT`). Connector polls `/openApi/swap/v2/quote/premiumIndex` (no symbol arg) every 3s — returns ~675 rows each with `markPrice`, `lastFundingRate`, `nextFundingTime` (ms), `fundingIntervalHours`. 624 trading perps after filter. Interval distribution: 427×4h / 232×8h / 16×1h on wire (BingX publishes funding interval per symbol inline, so no discovery cache needed).
+- `backend/exchange/whitebit_discovery.py` + `whitebit_ws.py`: discovery via `GET https://whitebit.com/api/v4/public/futures` (filter `product_type=Perpetual`, `money_currency=USDT`, extract `stock_currency` → canonical `{stock}USDT`). Connector polls the SAME endpoint every 3s. 294 perps. Interval distribution: 203×4h / 89×8h / 2×1h. **Caveat:** WhiteBIT's public REST does not expose mark price — we use `index_price` as a mark proxy (documented in `whitebit_ws.py` docstring). The basis is typically single-digit bps so this is safe for arb detection; revisit if they ship a dedicated mark channel.
+- `backend/config.py`: `EXCHANGES["bingx"]` with 0.02%/0.05% maker/taker (source: BingX support article 360016559759), `EXCHANGES["whitebit"]` with 0.01%/0.055% (source: blog.whitebit.com/en/whitebit-trading-fee/ — the canonical `whitebit.com/fees` 403s to non-browser UAs). `ws_url` set to the REST endpoint for both (no actual websocket).
+- `backend/main.py` + `backend/exchange/pair_discovery.py` + `backend/exchange/history.py`: wired through startup, parallel discovery, and ccxt (`ccxt.bingx`, `ccxt.whitebit`). BingX added to the `{"price":"mark"}` mark-price kline tuple; WhiteBIT omitted (their kline endpoint returns last-trade only — consistent with the runtime index-price proxy).
+- `backend/exchange/_template_ws.py` + `.claude/skills/add-exchange/SKILL.md`: documented Archetype 5 so future contributors pick the REST-poll pattern when the wire shape warrants it. Reference implementation: `backend/exchange/bingx_ws.py`.
+- Verified: `/verify-exchange bingx` and `/verify-exchange whitebit` both PASS on first run. BTCUSDT populated with all four fields on both venues. 425/624 BingX symbols and 205/294 WhiteBIT symbols resolve off the 8h default interval, confirming per-symbol intervals are being captured (not silently falling back to default).
+- **Venue-list rationale:** BingX + WhiteBIT were the two most-cited remaining venues from the competitor audit (`research/2026-04-21-competitor-transport-and-venue-audit.md`) after OKX + KuCoin. Both appear on CoinGlass's 30-venue tracker.
+
 ## 2026-04-21 — Ancillary docs: strategy + market research
 
 - `OVERVIEW.md`: strategic "why" / "where to" doc. Positions RoboSpread as the self-hosted alternative to ArbitrageScanner.io with $5k MRR target via execution layer. Points at the two supporting artifacts below.

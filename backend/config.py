@@ -124,6 +124,32 @@ EXCHANGES: dict[str, dict] = {
         "default_funding_interval_h": 4.0,  # most common on KuCoin; per-symbol cached
         "ws_url": "",  # dynamic — resolved via POST /bullet-public at connect time
     },
+    "bingx": {
+        "id": "bingx",
+        "name": "BingX Futures",
+        "short_name": "BingX",
+        "icon": "https://assets.coingecko.com/markets/images/787/small/bingx.jpg",
+        "color": "#2a5ada",
+        "letter": "Bx",
+        "maker_fee": 0.02,
+        "taker_fee": 0.05,
+        "fee_source_url": "https://bingx.com/en/support/articles/360016559759",
+        "default_funding_interval_h": 8.0,
+        "ws_url": "https://open-api.bingx.com/openApi/swap/v2/quote/premiumIndex",  # REST-poll (Archetype 5)
+    },
+    "whitebit": {
+        "id": "whitebit",
+        "name": "WhiteBIT Futures",
+        "short_name": "WhiteBIT",
+        "icon": "https://assets.coingecko.com/markets/images/388/small/whitebit.jpg",
+        "color": "#4878ff",
+        "letter": "W",
+        "maker_fee": 0.01,
+        "taker_fee": 0.055,
+        "fee_source_url": "https://blog.whitebit.com/en/whitebit-trading-fee/",
+        "default_funding_interval_h": 8.0,
+        "ws_url": "https://whitebit.com/api/v4/public/futures",  # REST-poll (Archetype 5)
+    },
 }
 
 # Minimum number of exchanges a symbol must be listed on to be tracked.

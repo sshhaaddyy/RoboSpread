@@ -31,6 +31,10 @@ def _get_client(exchange_id: str):
         _clients[exchange_id] = ccxt.okx({"options": {"defaultType": "swap"}})
     elif exchange_id == "kucoin":
         _clients[exchange_id] = ccxt.kucoinfutures()
+    elif exchange_id == "bingx":
+        _clients[exchange_id] = ccxt.bingx({"options": {"defaultType": "swap"}})
+    elif exchange_id == "whitebit":
+        _clients[exchange_id] = ccxt.whitebit({"options": {"defaultType": "swap"}})
     else:
         raise ValueError(f"No ccxt client configured for {exchange_id}")
     return _clients[exchange_id]
@@ -39,7 +43,7 @@ def _get_client(exchange_id: str):
 def _ccxt_symbol(exchange_id: str, canonical: str) -> str | None:
     """Translate our canonical Binance-style id (BTCUSDT, 1000PEPEUSDT) into the
     ccxt symbol string the target exchange expects."""
-    if exchange_id in ("binance", "bybit", "bitget", "gate", "mexc", "okx"):
+    if exchange_id in ("binance", "bybit", "bitget", "gate", "mexc", "okx", "bingx", "whitebit"):
         return canonical.replace("USDT", "/USDT:USDT")
     if exchange_id == "kucoin":
         # KuCoin uses XBT for BTC; ccxt kucoinfutures exposes "BTC/USDT:USDT".
@@ -90,7 +94,10 @@ def _fetch_ohlcv(exchange_id: str, canonical_symbol: str, timeframe: str, limit:
     symbol = _ccxt_symbol(exchange_id, canonical_symbol)
     if not symbol:
         return []
-    params = {"price": "mark"} if exchange_id in ("binance", "bybit", "bitget", "gate", "okx", "kucoin") else {}
+    # whitebit omitted: their REST doesn't expose mark prices at any endpoint
+    # we're aware of, so historical klines fall back to last-trade price
+    # (consistent with the runtime connector using index_price as a mark proxy).
+    params = {"price": "mark"} if exchange_id in ("binance", "bybit", "bitget", "gate", "okx", "kucoin", "bingx") else {}
     return client.fetch_ohlcv(
         symbol,
         timeframe=timeframe,
